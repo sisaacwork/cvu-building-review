@@ -250,13 +250,13 @@
     <h2>Layers</h2>
     <div id="layer-toggles"></div>
 
-    <h2>Filter: sources agreeing</h2>
+    <h2>Filter: source</h2>
     <div id="confirmed-toggles">
-      <label><input type="checkbox" data-confirmed-count="3" checked> 3 sources agree (highest)</label>
-      <label><input type="checkbox" data-confirmed-count="2" checked> 2 sources agree</label>
-      <label><input type="checkbox" data-confirmed-count="1" checked> single source</label>
+      <label><input type="checkbox" data-source="osm" checked> osm <span style="color:#888;font-size:11px;">(Overture)</span></label>
+      <label><input type="checkbox" data-source="gba" checked> gba <span style="color:#888;font-size:11px;">(TUM)</span></label>
+      <label><input type="checkbox" data-source="globfp" checked> globfp <span style="color:#888;font-size:11px;">(3D-GloBFP)</span></label>
     </div>
-    <div class="hint" style="margin-top:4px;">Sources: osm (Overture), gba (TUM), globfp (3D-GloBFP). More agreeing = stronger evidence.</div>
+    <div class="hint" style="margin-top:4px;">Shows a candidate if any of its confirming sources is checked. All on = show everything. Dot color still reflects how many sources agree (dark red 3, orange 2, yellow 1).</div>
 
     <h2>Filter: review status</h2>
     <div id="status-toggles">
@@ -891,8 +891,8 @@ function renderLayer(key) {
   const showPolygons = document.getElementById('show-polygons').checked;
   const useCluster = document.getElementById('cluster-points').checked;
 
-  const confirmedAllowed = new Set(
-    Array.from(document.querySelectorAll('#confirmed-toggles input:checked')).map(el => el.dataset.confirmedCount)
+  const sourcesAllowed = new Set(
+    Array.from(document.querySelectorAll('#confirmed-toggles input:checked')).map(el => el.dataset.source)
   );
   const statusAllowed = new Set(
     Array.from(document.querySelectorAll('#status-toggles input:checked')).map(el => el.dataset.status)
@@ -907,7 +907,10 @@ function renderLayer(key) {
       if (h < heightMin || h > heightMax) return false;
     }
     if (cityFilter && r.city !== cityFilter) return false;
-    if (r.confirmed_by && !confirmedAllowed.has(String(Math.min(3, confirmedCount(r.confirmed_by))))) return false;
+    if (r.confirmed_by) {
+      const rowSources = String(r.confirmed_by).split('+');
+      if (!rowSources.some(s => sourcesAllowed.has(s))) return false;
+    }
 
     // Status filter (only applies to reviewable layers)
     if (cfg.reviewable) {
