@@ -250,12 +250,13 @@
     <h2>Layers</h2>
     <div id="layer-toggles"></div>
 
-    <h2>Filter: confirmed by</h2>
+    <h2>Filter: sources agreeing</h2>
     <div id="confirmed-toggles">
-      <label><input type="checkbox" data-confirmed="osm+gba" checked> osm + gba (highest)</label>
-      <label><input type="checkbox" data-confirmed="gba" checked> gba only</label>
-      <label><input type="checkbox" data-confirmed="osm" checked> osm only</label>
+      <label><input type="checkbox" data-confirmed-count="3" checked> 3 sources agree (highest)</label>
+      <label><input type="checkbox" data-confirmed-count="2" checked> 2 sources agree</label>
+      <label><input type="checkbox" data-confirmed-count="1" checked> single source</label>
     </div>
+    <div class="hint" style="margin-top:4px;">Sources: osm (Overture), gba (TUM), globfp (3D-GloBFP). More agreeing = stronger evidence.</div>
 
     <h2>Filter: review status</h2>
     <div id="status-toggles">
@@ -370,6 +371,15 @@
 // data repo. Reviewers never see or paste this URL.
 // =============================================================================
 const PROXY_URL = "https://cvu-building-review.sisaacwork.workers.dev";
+
+// confirmed_by is a "+"-joined set of agreeing sources (e.g. "osm",
+// "osm+gba", "osm+gba+globfp"). We color and filter by how MANY sources
+// agree rather than which ones, so any combination renders correctly.
+function confirmedCount(cb) { return cb ? String(cb).split('+').length : 0; }
+function confirmedColor(cb) {
+  const n = confirmedCount(cb);
+  return n >= 3 ? '#b71c1c' : n === 2 ? '#e65100' : '#fbc02d';
+}
 
 // =============================================================================
 // Layer definitions — internal keys, color rules, display groups.
@@ -687,7 +697,7 @@ function buildPopup(row, layerKey, marker) {
 
   let badge = '';
   if (row.confirmed_by) {
-    const c = (LAYERS.likely_new.categoryColors || {})[row.confirmed_by] || '#999';
+    const c = confirmedColor(row.confirmed_by);
     badge = `<span class="badge" style="background:${c}">${row.confirmed_by}</span> `;
   }
 
@@ -770,8 +780,8 @@ window.setStatus = setStatus;
 // =============================================================================
 function colorForRow(layerKey, row) {
   const cfg = LAYERS[layerKey];
-  if (cfg.pointMode === 'category' && row.confirmed_by && cfg.categoryColors[row.confirmed_by]) {
-    return cfg.categoryColors[row.confirmed_by];
+  if (cfg.pointMode === 'category' && row.confirmed_by) {
+    return confirmedColor(row.confirmed_by);
   }
   return cfg.color;
 }
@@ -882,7 +892,7 @@ function renderLayer(key) {
   const useCluster = document.getElementById('cluster-points').checked;
 
   const confirmedAllowed = new Set(
-    Array.from(document.querySelectorAll('#confirmed-toggles input:checked')).map(el => el.dataset.confirmed)
+    Array.from(document.querySelectorAll('#confirmed-toggles input:checked')).map(el => el.dataset.confirmedCount)
   );
   const statusAllowed = new Set(
     Array.from(document.querySelectorAll('#status-toggles input:checked')).map(el => el.dataset.status)
@@ -897,7 +907,7 @@ function renderLayer(key) {
       if (h < heightMin || h > heightMax) return false;
     }
     if (cityFilter && r.city !== cityFilter) return false;
-    if (r.confirmed_by && !confirmedAllowed.has(r.confirmed_by)) return false;
+    if (r.confirmed_by && !confirmedAllowed.has(String(Math.min(3, confirmedCount(r.confirmed_by))))) return false;
 
     // Status filter (only applies to reviewable layers)
     if (cfg.reviewable) {
