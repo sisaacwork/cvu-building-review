@@ -553,25 +553,30 @@ function ensureLayerGroup(key) {
 function parseWkt(wkt) {
   if (!wkt || typeof wkt !== 'string') return null;
   wkt = wkt.trim();
+  const parseRing = (s) => {
+    // Defensive: filter out malformed coord pairs (whitespace artifacts,
+    // truncated rows, NaN-producing values) so we don't poison L.polygon.
+    const pairs = s.split(',').map(p => {
+      const [lon, lat] = p.trim().split(/\s+/).map(Number);
+      return [lat, lon];
+    }).filter(([lat, lon]) => Number.isFinite(lat) && Number.isFinite(lon));
+    return pairs.length >= 3 ? pairs : null;  // valid ring needs ≥3 vertices
+  };
   if (wkt.startsWith('POLYGON')) {
     const m = wkt.match(/\(\(([\s\S]+?)\)\)/);
     if (!m) return null;
-    return [m[1].split(',').map(p => {
-      const [lon, lat] = p.trim().split(/\s+/).map(Number);
-      return [lat, lon];
-    })];
+    const ring = parseRing(m[1]);
+    return ring ? [ring] : null;
   }
   if (wkt.startsWith('MULTIPOLYGON')) {
     const rings = [];
     const re = /\(\(([\s\S]+?)\)\)/g;
     let m;
     while ((m = re.exec(wkt)) !== null) {
-      rings.push(m[1].split(',').map(p => {
-        const [lon, lat] = p.trim().split(/\s+/).map(Number);
-        return [lat, lon];
-      }));
+      const ring = parseRing(m[1]);
+      if (ring) rings.push(ring);
     }
-    return rings;
+    return rings.length ? rings : null;
   }
   return null;
 }
@@ -849,35 +854,51 @@ function renderLayer(key) {
     target = cluster;
   }
 
+  let nMarkerErr = 0, nPolyErr = 0;
   for (const r of filtered) {
     const lat = r.centroid_lat ?? r.lat;
     const lon = r.centroid_lon ?? r.lon;
-    const m = L.circleMarker([lat, lon], styleFor(key, r));
-    const popupBuilder = () => buildPopup(r, key, m);
-    m.bindPopup(popupBuilder);
-    // Zoom in when clicking a marker from a wide view (don't disturb users
-    // already zoomed in enough to read the satellite imagery).
-    m.on('click', () => {
-      if (map.getZoom() < 14) map.flyTo([lat, lon], 15, { duration: 0.5 });
-    });
-    if (useCluster) cluster.addLayer(m); else group.addLayer(m);
+    // Belt-and-suspenders: filter already required finite values, but a row
+    // with weird non-finite arithmetic edge case shouldn't blow up render.
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+
+    let popupBuilder;
+    try {
+      const m = L.circleMarker([lat, lon], styleFor(key, r));
+      popupBuilder = () => buildPopup(r, key, m);
+      m.bindPopup(popupBuilder);
+      m.on('click', () => {
+        if (map.getZoom() < 14) map.flyTo([lat, lon], 15, { duration: 0.5 });
+      });
+      if (useCluster) cluster.addLayer(m); else group.addLayer(m);
+    } catch (e) {
+      nMarkerErr++;
+      continue;  // bad marker → skip the polygon for the same row too
+    }
 
     if (showPolygons && r.geometry_wkt) {
-      const rings = parseWkt(r.geometry_wkt);
-      if (rings && rings.length) {
-        const review = getReview(key, r);
-        const polyColor = (review && STATUSES[review.status]?.color) || colorForRow(key, r);
-        const poly = L.polygon(rings, {
-          color: polyColor,
-          weight: review ? 2.5 : 1.5,
-          fillColor: polyColor,
-          fillOpacity: review ? 0.25 : (cfg.polygonOpacity ?? 0.3),
-        });
-        poly._rowId = rowGeomId(key, r);
-        poly.bindPopup(popupBuilder);
-        group.addLayer(poly);
+      try {
+        const rings = parseWkt(r.geometry_wkt);
+        if (rings && rings.length) {
+          const review = getReview(key, r);
+          const polyColor = (review && STATUSES[review.status]?.color) || colorForRow(key, r);
+          const poly = L.polygon(rings, {
+            color: polyColor,
+            weight: review ? 2.5 : 1.5,
+            fillColor: polyColor,
+            fillOpacity: review ? 0.25 : (cfg.polygonOpacity ?? 0.3),
+          });
+          poly._rowId = rowGeomId(key, r);
+          poly.bindPopup(popupBuilder);
+          group.addLayer(poly);
+        }
+      } catch (e) {
+        nPolyErr++;
       }
     }
+  }
+  if (nMarkerErr || nPolyErr) {
+    console.warn(`[${key}] skipped ${nMarkerErr} bad marker(s), ${nPolyErr} bad polygon(s)`);
   }
   updateGroupCounts();
 }
