@@ -155,16 +155,45 @@
 
   /* Admin polygon hover hint */
   .leaflet-interactive.admin-hover { cursor: pointer; }
+
+  /* Sign-in card on the welcome overlay */
+  .signin-card {
+    background: #262626; border: 1px solid #3a3a3a;
+    border-radius: 10px; padding: 36px 40px;
+    width: 100%; max-width: 380px; text-align: left;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.4);
+  }
+  .signin-card h2 { margin: 0 0 6px; font-size: 22px; }
+  .signin-card .subtitle { margin: 0 0 22px; color: #9ca3af; font-size: 13px; line-height: 1.5; }
+  .signin-card label { display: block; font-size: 12px; color: #9ca3af; margin: 14px 0 4px; font-weight: 500; }
+  .signin-card input {
+    width: 100%; box-sizing: border-box;
+    background: #1a1a1a; color: #fff; border: 1px solid #404040; border-radius: 5px;
+    padding: 9px 11px; font-size: 14px;
+  }
+  .signin-card input:focus { outline: none; border-color: #3b82f6; }
+  .signin-card .button {
+    width: 100%; margin-top: 20px; background: #2563eb; color: #fff;
+    padding: 10px 14px; border: 0; border-radius: 5px; font-size: 14px;
+    font-weight: 600; cursor: pointer;
+  }
+  .signin-card .button:hover { background: #1d4ed8; }
+  .signin-card .button:disabled { background: #475569; cursor: wait; }
+  .signin-card .error {
+    margin-top: 12px; padding: 8px 10px; background: #7f1d1d; color: #fecaca;
+    border-radius: 4px; font-size: 12px; display: none;
+  }
+  .signin-card .error.visible { display: block; }
+  .signin-card .footer { margin-top: 24px; font-size: 12px; color: #6b7280; }
+  .signin-card .footer a { color: #93c5fd; text-decoration: none; }
+  .signin-card .footer a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
 
 <header>
   <h1>CVU Building Gap Review</h1>
-  <div class="file-picker">
-    <input type="file" id="file-input" multiple accept=".csv,.geojson" style="font-size:12px;">
-    <span style="margin-left:8px; color:#aaa; font-size:12px;">— or drag the <code style="background:#333;padding:1px 4px;border-radius:3px">data/&lt;ISO&gt;/</code> folder onto the page</span>
-  </div>
+  <input type="file" id="file-input" multiple accept=".csv,.geojson" style="display:none;">
   <div class="stats" id="header-stats"></div>
 </header>
 
@@ -172,16 +201,13 @@
   <div id="sidebar">
     <h2>Data source</h2>
     <div id="gh-config" class="row-stack">
-      <input type="text"     id="gh-worker"   placeholder="Worker URL (e.g. https://cvu-dash-proxy.workers.dev)">
-      <input type="password" id="gh-pat"      placeholder="Dashboard password">
-      <input type="text"     id="gh-reviewer" placeholder="Your name (for commit attribution)">
-      <div style="display:flex; gap:4px;">
-        <button class="button" id="gh-load-btn" style="flex:1;">Load manifest</button>
-        <button class="button secondary" id="gh-clear-btn" style="width:auto; padding:7px 10px;" title="Forget saved config">Forget</button>
+      <div id="signed-in-banner" style="font-size: 12px; color: #555; line-height: 1.5;">
+        Signed in as <strong id="signed-in-name">…</strong>
       </div>
       <select id="gh-country" style="display:none;">
         <option value="">— pick a country —</option>
       </select>
+      <button class="button secondary" id="gh-clear-btn">Sign out</button>
       <div id="gh-status" style="font-size:11px; color:#666;"></div>
     </div>
 
@@ -257,13 +283,29 @@
 </div>
 
 <div id="welcome">
-  <h2>CVU Building Gap Review</h2>
-  <p><strong>Online mode:</strong> enter the Worker URL, dashboard password, and your name in the sidebar, click <em>Load manifest</em>, then pick a country.</p>
-  <p><strong>Local mode:</strong> drag a <code>data/&lt;ISO&gt;/</code> folder onto this page or use the file picker in the header to load CSVs straight from disk.</p>
-  <button class="button" onclick="document.getElementById('file-input').click()">Load files from disk…</button>
+  <div class="signin-card">
+    <h2>CVU Building Gap Review</h2>
+    <p class="subtitle">Sign in with the shared dashboard password to browse missing buildings by country.</p>
+    <label for="signin-name">Your name</label>
+    <input type="text"     id="signin-name"     placeholder="e.g. Sarah Chen" autocomplete="off">
+    <label for="signin-password">Dashboard password</label>
+    <input type="password" id="signin-password" placeholder="" autocomplete="current-password">
+    <div class="error" id="signin-error"></div>
+    <button class="button" id="signin-btn">Sign in</button>
+    <div class="footer">
+      Working from disk? <a href="#" id="signin-local-link">Load files locally</a>
+    </div>
+  </div>
 </div>
 
 <script>
+// =============================================================================
+// CONFIG — edit before publishing the dashboard to the public companion repo.
+// PROXY_URL is the Cloudflare Worker that proxies reads/writes to the private
+// data repo. Reviewers never see or paste this URL.
+// =============================================================================
+const PROXY_URL = "https://cvu-building-review.YOUR_ACCT.workers.dev";
+
 // =============================================================================
 // Layer definitions — internal keys, color rules, display groups.
 // =============================================================================
@@ -813,6 +855,11 @@ function renderLayer(key) {
     const m = L.circleMarker([lat, lon], styleFor(key, r));
     const popupBuilder = () => buildPopup(r, key, m);
     m.bindPopup(popupBuilder);
+    // Zoom in when clicking a marker from a wide view (don't disturb users
+    // already zoomed in enough to read the satellite imagery).
+    m.on('click', () => {
+      if (map.getZoom() < 14) map.flyTo([lat, lon], 15, { duration: 0.5 });
+    });
     if (useCluster) cluster.addLayer(m); else group.addLayer(m);
 
     if (showPolygons && r.geometry_wkt) {
@@ -1191,36 +1238,33 @@ for (const cb of document.querySelectorAll('#confirmed-toggles input, #status-to
 updateReviewStats();
 
 // =============================================================================
-// Online mode: Cloudflare Worker proxy (replaces direct GitHub API calls).
-//
-// The Worker holds the bot PAT server-side and gatekeeps with a shared
-// dashboard password. Reviewers paste:
-//   1. The Worker URL  (e.g. https://cvu-dash-proxy.acct.workers.dev)
-//   2. The dashboard password
-//   3. Their name (used in commit messages)
+// Online mode: Cloudflare Worker proxy. Worker URL is hardcoded at top of file;
+// reviewers only enter their name + the shared dashboard password.
 //
 // Worker endpoints used:
-//   GET  <workerUrl>/api/manifest               → { sha, content (base64 manifest.json) }
-//   GET  <workerUrl>/api/file/<path>            → { sha, content (base64) }
-//   PUT  <workerUrl>/api/file/<path>            body: { content (base64), sha?, message? }
+//   GET  PROXY_URL/api/manifest        → { sha, content (base64 manifest.json) }
+//   GET  PROXY_URL/api/file/<path>     → { sha, content (base64) }
+//   PUT  PROXY_URL/api/file/<path>     body: { content (base64), sha?, message? }
 // =============================================================================
 const PROXY_CONFIG_KEY = 'cvu-gap-proxy-config';
 let proxyConfig = JSON.parse(localStorage.getItem(PROXY_CONFIG_KEY) || '{}');
 let proxyManifest = null;
 const proxyFileShas = {};
 
-const $ghWorker   = document.getElementById('gh-worker');
-const $ghPat      = document.getElementById('gh-pat');
-const $ghReviewer = document.getElementById('gh-reviewer');
-const $ghLoad     = document.getElementById('gh-load-btn');
-const $ghClear    = document.getElementById('gh-clear-btn');
-const $ghCountry  = document.getElementById('gh-country');
-const $ghStatus   = document.getElementById('gh-status');
-const $saveGh     = document.getElementById('save-github-btn');
+const $ghClear        = document.getElementById('gh-clear-btn');
+const $ghCountry      = document.getElementById('gh-country');
+const $ghStatus       = document.getElementById('gh-status');
+const $saveGh         = document.getElementById('save-github-btn');
+const $signedInBanner = document.getElementById('signed-in-banner');
+const $signedInName   = document.getElementById('signed-in-name');
 
-if (proxyConfig.workerUrl)   $ghWorker.value   = proxyConfig.workerUrl;
-if (proxyConfig.password)    $ghPat.value      = proxyConfig.password;
-if (proxyConfig.reviewer)    $ghReviewer.value = proxyConfig.reviewer;
+// Sign-in card on the welcome overlay
+const $welcome        = document.getElementById('welcome');
+const $signinName     = document.getElementById('signin-name');
+const $signinPw       = document.getElementById('signin-password');
+const $signinBtn      = document.getElementById('signin-btn');
+const $signinError    = document.getElementById('signin-error');
+const $signinLocal    = document.getElementById('signin-local-link');
 
 function proxyHeaders() {
   return {
@@ -1231,13 +1275,22 @@ function proxyHeaders() {
 }
 
 async function workerGet(path) {
-  const base = (proxyConfig.workerUrl || '').replace(/\/+$/, '');
+  const base = PROXY_URL.replace(/\/+$/, '');
   const url = path === '__manifest__'
     ? `${base}/api/manifest`
     : `${base}/api/file/${encodeURI(path)}`;
-  const r = await fetch(url, { headers: proxyHeaders() });
+  let r;
+  try {
+    r = await fetch(url, { headers: proxyHeaders() });
+  } catch (netErr) {
+    const err = new Error(`Network error fetching ${path}: ${netErr.message}`);
+    err.status = 0;
+    throw err;
+  }
   if (!r.ok) {
-    const err = new Error(`GET ${path}: ${r.status} ${r.statusText}`);
+    let detail = '';
+    try { const j = await r.json(); detail = j.error || ''; } catch (_) {}
+    const err = new Error(`GET ${path}: ${r.status} ${detail || r.statusText}`);
     err.status = r.status;
     throw err;
   }
@@ -1247,7 +1300,7 @@ async function workerGet(path) {
 }
 
 async function workerPut(path, text, sha, message) {
-  const base = (proxyConfig.workerUrl || '').replace(/\/+$/, '');
+  const base = PROXY_URL.replace(/\/+$/, '');
   const url = `${base}/api/file/${encodeURI(path)}`;
   const body = {
     content: encodeBase64Utf8(text),
@@ -1272,25 +1325,30 @@ function decodeBase64Utf8(b64) {
   return decodeURIComponent(escape(atob(b64.replace(/\n/g, ''))));
 }
 
-async function loadManifest() {
-  proxyConfig.workerUrl = $ghWorker.value.trim();
-  proxyConfig.password  = $ghPat.value.trim();
-  proxyConfig.reviewer  = $ghReviewer.value.trim();
-  if (!proxyConfig.workerUrl || !proxyConfig.password) {
-    $ghStatus.textContent = 'Need both Worker URL and password.';
-    return;
-  }
-  localStorage.setItem(PROXY_CONFIG_KEY, JSON.stringify(proxyConfig));
-  $ghStatus.textContent = 'Loading manifest…';
+// -----------------------------------------------------------------------------
+// Sign-in flow (welcome card → manifest → ready)
+// -----------------------------------------------------------------------------
+async function attemptSignIn(name, password) {
+  proxyConfig.password = password;
+  proxyConfig.reviewer = name;
   try {
     const { text } = await workerGet('__manifest__');
     proxyManifest = JSON.parse(text);
   } catch (e) {
-    $ghStatus.textContent = `Failed: ${e.message}`;
-    return;
+    if (e.status === 401)      throw new Error('Wrong password.');
+    if (e.status === 0)        throw new Error('Cannot reach the dashboard server. Check your internet.');
+    throw new Error(`Sign-in failed: ${e.message}`);
   }
+  // Success — persist + render
+  localStorage.setItem(PROXY_CONFIG_KEY, JSON.stringify(proxyConfig));
+  populateCountryDropdown();
+  $signedInName.textContent = name || 'anonymous';
+  $welcome.classList.add('hidden');
+}
+
+function populateCountryDropdown() {
   $ghCountry.innerHTML = '<option value="">— pick a country —</option>';
-  for (const c of (proxyManifest.countries || [])) {
+  for (const c of (proxyManifest?.countries || [])) {
     const total = Object.values(c.counts || {}).reduce((a,b) => a+b, 0);
     const opt = document.createElement('option');
     opt.value = c.iso;
@@ -1298,15 +1356,64 @@ async function loadManifest() {
     $ghCountry.appendChild(opt);
   }
   $ghCountry.style.display = 'block';
-  $ghStatus.textContent = `Manifest loaded: ${(proxyManifest.countries||[]).length} countries available.`;
+  $ghStatus.textContent = `${(proxyManifest?.countries||[]).length} countries available.`;
 }
 
+$signinBtn.addEventListener('click', async () => {
+  const name = $signinName.value.trim();
+  const password = $signinPw.value.trim();
+  $signinError.classList.remove('visible');
+  if (!name || !password) {
+    $signinError.textContent = 'Enter your name and the dashboard password.';
+    $signinError.classList.add('visible');
+    return;
+  }
+  $signinBtn.disabled = true; $signinBtn.textContent = 'Signing in…';
+  try {
+    await attemptSignIn(name, password);
+  } catch (e) {
+    $signinError.textContent = e.message;
+    $signinError.classList.add('visible');
+  } finally {
+    $signinBtn.disabled = false; $signinBtn.textContent = 'Sign in';
+  }
+});
+// Submit on Enter from either field
+for (const el of [$signinName, $signinPw]) {
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') $signinBtn.click(); });
+}
+// Local-mode escape hatch from the sign-in card
+$signinLocal.addEventListener('click', e => {
+  e.preventDefault();
+  document.getElementById('file-input').click();
+});
+
+// Auto-restore previous session
+(async () => {
+  if (proxyConfig.password && proxyConfig.reviewer) {
+    $signinName.value = proxyConfig.reviewer;
+    $signinPw.value = proxyConfig.password;
+    try {
+      await attemptSignIn(proxyConfig.reviewer, proxyConfig.password);
+    } catch (e) {
+      // Saved password was rotated or Worker is down — leave the card visible.
+      $signinError.textContent = e.message;
+      $signinError.classList.add('visible');
+    }
+  }
+})();
+
+// -----------------------------------------------------------------------------
+// Country load — fetch all per-country files in parallel + zoom to adm0
+// -----------------------------------------------------------------------------
 async function loadCountryFromProxy(iso) {
   if (!iso || !proxyManifest) return;
   const country = (proxyManifest.countries || []).find(c => c.iso === iso);
   if (!country) { $ghStatus.textContent = `${iso} not in manifest.`; return; }
   $ghStatus.textContent = `Loading ${iso}…`;
+  $ghCountry.disabled = true;
 
+  // Wipe local data so we don't merge across countries
   for (const k of Object.keys(data)) delete data[k];
   for (const k of Object.keys(layerGroups)) {
     if (layerGroups[k]) { layerGroups[k].clearLayers(); map.removeLayer(layerGroups[k]); }
@@ -1317,61 +1424,83 @@ async function loadCountryFromProxy(iso) {
   cityValues = new Set();
   clearAdminLayer();
 
-  const fileMap = {
-    'likely_new':           country.files.likely_new,
-    'borderline':           country.files.borderline,
-    'likely_already_in_cvu':country.files.likely_already_in_cvu,
-    'cvu_china':            country.files.cvu,
-    'cvu_coord_quality':    country.files.cvu_coord_quality,
-  };
+  try {
+    const files = country.files || {};
+    const fileMap = {
+      'likely_new':            files.likely_new,
+      'borderline':            files.borderline,
+      'likely_already_in_cvu': files.likely_already_in_cvu,
+      'cvu_china':             files.cvu,
+      'cvu_coord_quality':     files.cvu_coord_quality,
+    };
 
-  const pending = [];
-  for (const [layerKey, path] of Object.entries(fileMap)) {
-    if (!path) continue;
+    const pending = [];
+    for (const [layerKey, path] of Object.entries(fileMap)) {
+      if (!path) continue;
+      pending.push((async () => {
+        try {
+          const { text, sha } = await workerGet(path);
+          const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+          data[layerKey] = parsed.data.map(parseRow);
+          for (const r of data[layerKey]) if (r.city) cityValues.add(r.city);
+          const basename = path.split('/').pop();
+          _loadedFiles[layerKey] = { filename: basename, headers: parsed.meta.fields || [] };
+          proxyFileShas[layerKey] = { path, sha };
+        } catch (e) {
+          if (e.status !== 404) console.warn(`Could not load ${layerKey} (${path}): ${e.message}`);
+        }
+      })());
+    }
+    // Admin polygons (optional)
     pending.push((async () => {
       try {
-        const { text, sha } = await workerGet(path);
-        const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
-        data[layerKey] = parsed.data.map(parseRow);
-        for (const r of data[layerKey]) if (r.city) cityValues.add(r.city);
-        const basename = path.split('/').pop();
-        _loadedFiles[layerKey] = { filename: basename, headers: parsed.meta.fields || [] };
-        proxyFileShas[layerKey] = { path, sha };
+        const { text } = await workerGet(`data/${iso}/admin.geojson`);
+        loadAdminGeojson(JSON.parse(text));
       } catch (e) {
-        if (e.status !== 404) console.warn(`Could not load ${layerKey} (${path}): ${e.message}`);
+        if (e.status !== 404) console.warn(`admin.geojson for ${iso}: ${e.message}`);
       }
     })());
-  }
-  // Admin polygons — separate file, optional
-  pending.push((async () => {
+
+    await Promise.all(pending);
+
+    loadedISO = iso;
+    $saveGh.style.display = 'block';
+
+    // Reviews sidecar
     try {
-      const { text } = await workerGet(`data/${iso}/admin.geojson`);
-      loadAdminGeojson(JSON.parse(text));
+      const r = await workerGet(`data/${iso}/reviews.csv`);
+      ingestReviewsCsv(r.text);
+      proxyFileShas['_reviews'] = { path: `data/${iso}/reviews.csv`, sha: r.sha };
     } catch (e) {
-      if (e.status !== 404) console.warn(`Could not load admin.geojson for ${iso}: ${e.message}`);
+      if (e.status !== 404) console.warn(`reviews.csv load failed: ${e.message}`);
+      proxyFileShas['_reviews'] = { path: `data/${iso}/reviews.csv`, sha: null };
     }
-  })());
+    for (const [layerKey, rows] of Object.entries(data)) migrateLegacyReviewedColumn(layerKey, rows);
 
-  await Promise.all(pending);
-
-  loadedISO = iso;
-  document.getElementById('welcome').classList.add('hidden');
-  $saveGh.style.display = 'block';
-
-  // Reviews sidecar
-  try {
-    const r = await workerGet(`data/${iso}/reviews.csv`);
-    ingestReviewsCsv(r.text);
-    proxyFileShas['_reviews'] = { path: `data/${iso}/reviews.csv`, sha: r.sha };
+    refreshCityFilter();
+    renderAll();
+    zoomToCountry();
+    updateReviewStats();
+    $ghStatus.textContent = `Loaded ${iso} — ${Object.values(country.counts || {}).reduce((a,b)=>a+b,0).toLocaleString()} rows.`;
   } catch (e) {
-    if (e.status !== 404) console.warn(`reviews.csv load failed: ${e.message}`);
-    proxyFileShas['_reviews'] = { path: `data/${iso}/reviews.csv`, sha: null };
+    console.error('loadCountryFromProxy failed:', e);
+    $ghStatus.textContent = `Failed: ${e.message || e}`;
+    alert(`Could not load ${iso}: ${e.message || e}`);
+  } finally {
+    $ghCountry.disabled = false;
   }
-  for (const [layerKey, rows] of Object.entries(data)) migrateLegacyReviewedColumn(layerKey, rows);
+}
 
-  refreshCityFilter();
-  renderAll();
-
+// Zoom to the adm0 polygon if we have one; fall back to candidate bbox.
+function zoomToCountry() {
+  const adm0 = adminFeatures.find(f => f.properties?.level === 'adm0');
+  if (adm0) {
+    try {
+      const bounds = L.geoJSON(adm0).getBounds();
+      if (bounds.isValid()) { map.fitBounds(bounds, { padding: [40, 40] }); return; }
+    } catch (_) {}
+  }
+  // Fallback: derive bounds from candidate centroids
   const bounds = L.latLngBounds([]);
   for (const key of Object.keys(data)) {
     for (const r of data[key].slice(0, 5000)) {
@@ -1381,21 +1510,12 @@ async function loadCountryFromProxy(iso) {
     }
   }
   if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40] });
-  updateReviewStats();
-  $ghStatus.textContent = `Loaded ${iso} — ${Object.keys(data).length} layer(s).`;
 }
 
 async function saveReviewsToProxy() {
   if (!loadedISO || loadedISO === 'LOCAL') {
     alert('Pick a country from the dropdown first.');
     return;
-  }
-  if (!proxyConfig.reviewer) {
-    const name = prompt('Your name (for commit attribution):');
-    if (!name) return;
-    proxyConfig.reviewer = name.trim();
-    $ghReviewer.value = proxyConfig.reviewer;
-    localStorage.setItem(PROXY_CONFIG_KEY, JSON.stringify(proxyConfig));
   }
   $saveGh.disabled = true; $saveGh.textContent = 'Saving…';
   try {
@@ -1432,15 +1552,16 @@ async function saveReviewsToProxy() {
   }
 }
 
-$ghLoad.addEventListener('click', loadManifest);
 $ghCountry.addEventListener('change', e => loadCountryFromProxy(e.target.value));
 $ghClear.addEventListener('click', () => {
-  if (!confirm('Forget the saved Worker URL and password for this browser?')) return;
+  if (!confirm('Sign out and forget the password for this browser?')) return;
   localStorage.removeItem(PROXY_CONFIG_KEY);
   proxyConfig = {};
-  $ghWorker.value = ''; $ghPat.value = ''; $ghReviewer.value = '';
+  proxyManifest = null;
   $ghCountry.style.display = 'none'; $ghCountry.innerHTML = '<option value="">— pick a country —</option>';
-  $ghStatus.textContent = 'Forgotten.';
+  $ghStatus.textContent = 'Signed out.';
+  $signinName.value = ''; $signinPw.value = '';
+  $welcome.classList.remove('hidden');
 });
 $saveGh.addEventListener('click', saveReviewsToProxy);
 </script>
