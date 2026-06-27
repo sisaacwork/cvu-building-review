@@ -156,6 +156,42 @@
   /* Admin polygon hover hint */
   .leaflet-interactive.admin-hover { cursor: pointer; }
 
+  /* Box-select mode visual + bulk action floating panel */
+  #map.box-select-mode { cursor: crosshair !important; }
+  #sidebar .button.active { background: #b45309; }
+  #sidebar .button.active:hover { background: #9a4709; }
+  #admin-region-multiselect { font-size: 11px; min-height: 110px; }
+
+  #bulk-action-panel {
+    position: absolute; right: 16px; bottom: 16px;
+    background: #1f2937; color: #fff; padding: 14px 16px;
+    border-radius: 8px; box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+    z-index: 800; max-width: 340px; font-size: 13px;
+    display: none;
+  }
+  #bulk-action-panel.visible { display: block; }
+  #bulk-action-panel .header { font-weight: 600; margin-bottom: 8px; font-size: 14px; }
+  #bulk-action-panel .subhead { font-size: 11px; color: #9ca3af; margin-bottom: 8px; }
+  #bulk-action-panel textarea {
+    width: 100%; box-sizing: border-box; min-height: 38px; resize: vertical;
+    background: #111827; color: #f3f4f6; border: 1px solid #374151;
+    border-radius: 4px; padding: 5px 7px; font-size: 12px; font-family: inherit;
+    margin-bottom: 8px;
+  }
+  #bulk-action-panel .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  #bulk-action-panel button {
+    padding: 6px 8px; font-size: 11px; font-weight: 500; color: #fff;
+    border: 0; border-radius: 3px; cursor: pointer; font-family: inherit;
+  }
+  #bulk-action-panel button.full { grid-column: 1 / -1; }
+  #bulk-action-panel button.btn-false-positive { background: #6b7280; }
+  #bulk-action-panel button.btn-tower          { background: #a855f7; }
+  #bulk-action-panel button.btn-add-to-sc      { background: #16a34a; }
+  #bulk-action-panel button.btn-flagged        { background: #f59e0b; }
+  #bulk-action-panel button.btn-unreview       { background: #444; }
+  #bulk-action-panel button.btn-cancel         { background: #1e3a8a; }
+  #bulk-action-panel button:hover { filter: brightness(0.92); }
+
   /* Sign-in card on the welcome overlay */
   .signin-card {
     background: #262626; border: 1px solid #3a3a3a;
@@ -241,15 +277,19 @@
     <h2>Filter: city tag</h2>
     <select id="city-filter"><option value="">All cities</option></select>
 
-    <h2>Filter: admin area <span style="color:#888; text-transform:none; font-weight:400; font-size:11px;">(click on map)</span></h2>
-    <div id="active-admin-filter" style="min-height: 22px; font-size: 11px; color: #888;">
-      <em>Click an adm1/adm2/UC polygon to filter to it</em>
+    <h2>Filter: admin area <span style="color:#888; text-transform:none; font-weight:400; font-size:11px;">(click on map or pick below)</span></h2>
+    <select id="admin-region-multiselect" multiple size="8">
+      <option disabled>— load a country to populate —</option>
+    </select>
+    <div id="active-admin-filter" style="min-height: 22px; font-size: 11px; color: #888; margin-top: 4px;">
+      <em>Click adm1/adm2/UC polygons or pick names above</em>
     </div>
     <button class="button secondary" id="clear-admin-filter-btn" style="margin-top: 4px; display: none;">Clear admin filter</button>
 
     <h2>Reviewed items</h2>
     <div class="review-stats" id="review-stats">0 reviewed</div>
     <button class="button" id="save-github-btn" style="display:none;">Save reviews to GitHub</button>
+    <button class="button secondary" id="box-select-btn">Box-select for bulk edit</button>
     <button class="button secondary" id="export-csv-btn">Download reviews.csv (local)</button>
     <button class="button secondary" id="clear-reviews-btn">Clear all review marks</button>
 
@@ -261,9 +301,16 @@
       <option value="carto-dark">Carto Dark</option>
     </select>
 
+    <h2>Admin overlays</h2>
+    <div id="admin-level-toggles">
+      <label><input type="checkbox" data-admin-level="adm0" checked> <span class="swatch" style="background:#fde047"></span> adm0 (country)  <span class="count" data-admin-level-count="adm0"></span></label>
+      <label><input type="checkbox" data-admin-level="adm1" checked> <span class="swatch" style="background:#fde047"></span> adm1 (states)   <span class="count" data-admin-level-count="adm1"></span></label>
+      <label><input type="checkbox" data-admin-level="adm2" checked> <span class="swatch" style="background:#fbbf24"></span> adm2 (counties) <span class="count" data-admin-level-count="adm2"></span></label>
+      <label><input type="checkbox" data-admin-level="uc"   checked> <span class="swatch" style="background:#f97316"></span> urban centres   <span class="count" data-admin-level-count="uc"></span></label>
+    </div>
+
     <h2>Display</h2>
     <label><input type="checkbox" id="show-polygons" checked> Show building polygons</label>
-    <label><input type="checkbox" id="show-admin" checked> Show admin/UC overlays</label>
     <label><input type="checkbox" id="cluster-points"> Cluster points (faster for many)</label>
     <label><input type="checkbox" id="size-by-height" checked> Size dots by height</label>
 
@@ -279,6 +326,20 @@
   <div class="inner">
     <h2>Drop the country folder here</h2>
     <p>All CSVs + admin.geojson from one <code>data/&lt;ISO&gt;/</code> folder.</p>
+  </div>
+</div>
+
+<div id="bulk-action-panel">
+  <div class="header" id="bulk-action-header">0 buildings selected</div>
+  <div class="subhead" id="bulk-action-subhead"></div>
+  <textarea id="bulk-action-notes" placeholder="Optional notes for all selected (one note applied to every row)"></textarea>
+  <div class="grid">
+    <button class="btn-false-positive" data-bulk-status="false_positive">False positive</button>
+    <button class="btn-tower"          data-bulk-status="tower">Tower</button>
+    <button class="btn-add-to-sc"      data-bulk-status="add_to_sc">Add to SC ↗</button>
+    <button class="btn-flagged"        data-bulk-status="flagged">Flag for review</button>
+    <button class="btn-unreview full"  data-bulk-status="">Clear review marks</button>
+    <button class="btn-cancel full"    id="bulk-cancel-btn">Cancel</button>
   </div>
 </div>
 
@@ -865,9 +926,12 @@ function renderLayer(key) {
     let popupBuilder;
     try {
       const m = L.circleMarker([lat, lon], styleFor(key, r));
+      m._row = r;            // for box-select lookup
+      m._layerKey = key;
       popupBuilder = () => buildPopup(r, key, m);
       m.bindPopup(popupBuilder);
       m.on('click', () => {
+        if (boxSelectMode) return;  // suppress click-to-zoom in box-select mode
         if (map.getZoom() < 14) map.flyTo([lat, lon], 15, { duration: 0.5 });
       });
       if (useCluster) cluster.addLayer(m); else group.addLayer(m);
@@ -971,12 +1035,24 @@ function buildLayerToggles() {
 buildLayerToggles();
 
 // =============================================================================
-// Admin polygon overlay (adm1 / adm2 / urban centres)
+// Admin polygon overlay (adm0 / adm1 / adm2 / urban centres)
+// Each level renders into its own Leaflet layerGroup so the sidebar can
+// toggle them independently.
 // =============================================================================
-let adminLayerGroup = null;
+const ADMIN_LEVELS = ['adm0', 'adm1', 'adm2', 'uc'];
+const adminSubGroups = {};       // level → L.layerGroup
+const adminLevelVisibility = { adm0: true, adm1: true, adm2: true, uc: true };
 
 function clearAdminLayer() {
-  if (adminLayerGroup) { map.removeLayer(adminLayerGroup); adminLayerGroup = null; }
+  for (const lvl of ADMIN_LEVELS) {
+    if (adminSubGroups[lvl]) {
+      adminSubGroups[lvl].clearLayers();
+      map.removeLayer(adminSubGroups[lvl]);
+    }
+    delete adminSubGroups[lvl];
+    const el = document.querySelector(`[data-admin-level-count="${lvl}"]`);
+    if (el) el.textContent = '';
+  }
   adminFeatures.length = 0;
   adminFilterSet.clear();
   renderActiveAdminChips();
@@ -996,13 +1072,17 @@ function styleAdminSelected(level) {
 function loadAdminGeojson(geojson) {
   clearAdminLayer();
   if (!geojson || !geojson.features) return;
-  adminLayerGroup = L.layerGroup();
+
+  // One layerGroup per admin level so we can show/hide independently.
+  const counts = { adm0: 0, adm1: 0, adm2: 0, uc: 0 };
+  for (const lvl of ADMIN_LEVELS) adminSubGroups[lvl] = L.layerGroup();
 
   for (const f of geojson.features) {
     const level = f.properties?.level || 'adm?';
     const name  = f.properties?.name  || '';
     f._key = `${level}:${name}`;
     adminFeatures.push(f);
+    if (counts[level] !== undefined) counts[level]++;
 
     const polyLayer = L.geoJSON(f, { style: () => styleAdmin(level), interactive: true });
     polyLayer.on('click', () => toggleAdminFilter(f._key, name, level, polyLayer));
@@ -1013,21 +1093,84 @@ function loadAdminGeojson(geojson) {
     });
     polyLayer._adminKey = f._key;
     polyLayer._adminLevel = level;
-    adminLayerGroup.addLayer(polyLayer);
+    if (adminSubGroups[level]) adminSubGroups[level].addLayer(polyLayer);
   }
-  if (document.getElementById('show-admin').checked) adminLayerGroup.addTo(map);
+
+  // Update sidebar count labels.
+  for (const lvl of ADMIN_LEVELS) {
+    const el = document.querySelector(`[data-admin-level-count="${lvl}"]`);
+    if (el) el.textContent = counts[lvl] ? `(${counts[lvl].toLocaleString()})` : '(0)';
+  }
+
+  // Add visible sub-groups to the map per the sidebar checkboxes.
+  for (const lvl of ADMIN_LEVELS) {
+    if (adminLevelVisibility[lvl]) adminSubGroups[lvl].addTo(map);
+  }
+
+  // Populate the multi-select dropdown with all regions (grouped by level).
+  populateAdminMultiselect();
+}
+
+function populateAdminMultiselect() {
+  const sel = document.getElementById('admin-region-multiselect');
+  if (!sel) return;
+  sel.innerHTML = '';
+  if (!adminFeatures.length) {
+    const opt = document.createElement('option');
+    opt.disabled = true; opt.textContent = '— load a country to populate —';
+    sel.appendChild(opt);
+    return;
+  }
+  // Group features by level, alphabetize within each group.
+  const byLevel = {};
+  for (const f of adminFeatures) {
+    const lvl = f.properties?.level || 'adm?';
+    if (lvl === 'adm0') continue;  // adm0 is the whole country — filtering by it is a no-op
+    (byLevel[lvl] = byLevel[lvl] || []).push(f);
+  }
+  for (const lvl of ['adm1','adm2','uc']) {
+    const features = byLevel[lvl];
+    if (!features || !features.length) continue;
+    features.sort((a,b) => (a.properties?.name || '').localeCompare(b.properties?.name || ''));
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = `${lvl} (${features.length.toLocaleString()})`;
+    for (const f of features) {
+      const opt = document.createElement('option');
+      opt.value = f._key;
+      opt.textContent = f.properties?.name || '(unnamed)';
+      optgroup.appendChild(opt);
+    }
+    sel.appendChild(optgroup);
+  }
 }
 
 function toggleAdminFilter(key, name, level, polyLayer) {
-  if (adminFilterSet.has(key)) {
-    adminFilterSet.delete(key);
-    polyLayer.setStyle(styleAdmin(level));
-  } else {
-    adminFilterSet.add(key);
-    polyLayer.setStyle(styleAdminSelected(level));
-  }
-  renderActiveAdminChips();
+  const wasSelected = adminFilterSet.has(key);
+  if (wasSelected) adminFilterSet.delete(key);
+  else             adminFilterSet.add(key);
+  refreshAdminUI();
   renderAll();
+  // Auto-zoom: fly to the polygon's bbox when *adding* it (skip on remove —
+  // the user is already looking at it and probably doesn't want a re-zoom).
+  if (!wasSelected && polyLayer && polyLayer.getBounds) {
+    try {
+      const bounds = polyLayer.getBounds();
+      if (bounds.isValid()) map.flyToBounds(bounds, { padding: [40, 40], duration: 0.5 });
+    } catch (_) {}
+  }
+}
+
+// Single helper that synchronizes the multi-select dropdown, polygon styles,
+// and active-filter chips with the current adminFilterSet. Call this whenever
+// adminFilterSet changes (click, dropdown, chip-remove, clear-all).
+function refreshAdminUI() {
+  const sel = document.getElementById('admin-region-multiselect');
+  if (sel) for (const opt of sel.options) opt.selected = adminFilterSet.has(opt.value);
+  eachAdminPolygon(l => {
+    if (adminFilterSet.has(l._adminKey)) l.setStyle(styleAdminSelected(l._adminLevel));
+    else                                  l.setStyle(styleAdmin(l._adminLevel));
+  });
+  renderActiveAdminChips();
 }
 
 function renderActiveAdminChips() {
@@ -1046,11 +1189,7 @@ function renderActiveAdminChips() {
     chip.innerHTML = `${level}: ${name} <button title="Remove">×</button>`;
     chip.querySelector('button').addEventListener('click', () => {
       adminFilterSet.delete(key);
-      // Restyle the matching polygon back to default
-      if (adminLayerGroup) {
-        adminLayerGroup.eachLayer(l => { if (l._adminKey === key) l.setStyle(styleAdmin(l._adminLevel)); });
-      }
-      renderActiveAdminChips();
+      refreshAdminUI();
       renderAll();
     });
     c.appendChild(chip);
@@ -1058,20 +1197,46 @@ function renderActiveAdminChips() {
   clearBtn.style.display = 'block';
 }
 
+function eachAdminPolygon(fn) {
+  for (const lvl of ADMIN_LEVELS) {
+    const g = adminSubGroups[lvl];
+    if (!g) continue;
+    g.eachLayer(fn);
+  }
+}
+
 document.getElementById('clear-admin-filter-btn').addEventListener('click', () => {
   adminFilterSet.clear();
-  if (adminLayerGroup) {
-    adminLayerGroup.eachLayer(l => l.setStyle(styleAdmin(l._adminLevel)));
+  refreshAdminUI();
+  renderAll();
+});
+
+// Multi-select dropdown — sync filter from selected options.
+document.getElementById('admin-region-multiselect').addEventListener('change', e => {
+  const sel = e.target;
+  adminFilterSet.clear();
+  for (const opt of sel.selectedOptions) {
+    if (opt.value) adminFilterSet.add(opt.value);
   }
+  // Restyle and update chips, but DON'T resync the dropdown (the user just touched it).
+  eachAdminPolygon(l => {
+    if (adminFilterSet.has(l._adminKey)) l.setStyle(styleAdminSelected(l._adminLevel));
+    else                                  l.setStyle(styleAdmin(l._adminLevel));
+  });
   renderActiveAdminChips();
   renderAll();
 });
 
-document.getElementById('show-admin').addEventListener('change', e => {
-  if (!adminLayerGroup) return;
-  if (e.target.checked) adminLayerGroup.addTo(map);
-  else                  map.removeLayer(adminLayerGroup);
-});
+// Per-level admin overlay toggles
+for (const cb of document.querySelectorAll('#admin-level-toggles input[type=checkbox]')) {
+  cb.addEventListener('change', e => {
+    const lvl = e.target.dataset.adminLevel;
+    adminLevelVisibility[lvl] = e.target.checked;
+    const g = adminSubGroups[lvl];
+    if (!g) return;
+    if (e.target.checked) g.addTo(map); else map.removeLayer(g);
+  });
+}
 
 // =============================================================================
 // CSV load (local mode)
@@ -1257,6 +1422,152 @@ for (const cb of document.querySelectorAll('#confirmed-toggles input, #status-to
 }
 
 updateReviewStats();
+
+// =============================================================================
+// Box-select for bulk review actions
+//
+// User clicks "Box-select for bulk edit" → cursor becomes crosshair, dragging
+// draws a translucent rectangle. On release, every reviewable candidate whose
+// centroid is inside the rectangle gets gathered and the floating
+// #bulk-action-panel appears with the 5 review buttons (Existing CVU excluded
+// because that needs a per-row CVU ID).
+// =============================================================================
+let boxSelectMode = false;
+let boxStart = null;
+let boxDiv = null;
+let bulkSelected = [];       // [{ layerKey, row, marker }]
+
+const $boxSelectBtn = document.getElementById('box-select-btn');
+const $bulkPanel    = document.getElementById('bulk-action-panel');
+const $bulkHeader   = document.getElementById('bulk-action-header');
+const $bulkSubhead  = document.getElementById('bulk-action-subhead');
+const $bulkNotes    = document.getElementById('bulk-action-notes');
+
+function enterBoxSelectMode() {
+  boxSelectMode = true;
+  map.dragging.disable();
+  map.doubleClickZoom.disable();
+  map.getContainer().classList.add('box-select-mode');
+  $boxSelectBtn.textContent = 'Cancel box-select';
+  $boxSelectBtn.classList.add('active');
+}
+function exitBoxSelectMode() {
+  boxSelectMode = false;
+  map.dragging.enable();
+  map.doubleClickZoom.enable();
+  map.getContainer().classList.remove('box-select-mode');
+  $boxSelectBtn.textContent = 'Box-select for bulk edit';
+  $boxSelectBtn.classList.remove('active');
+  if (boxDiv) { boxDiv.remove(); boxDiv = null; }
+  boxStart = null;
+  $bulkPanel.classList.remove('visible');
+  bulkSelected = [];
+}
+
+$boxSelectBtn.addEventListener('click', () => {
+  if (boxSelectMode) exitBoxSelectMode();
+  else               enterBoxSelectMode();
+});
+
+map.getContainer().addEventListener('mousedown', e => {
+  if (!boxSelectMode || e.button !== 0) return;
+  e.preventDefault();
+  const rect = map.getContainer().getBoundingClientRect();
+  boxStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  boxDiv = document.createElement('div');
+  boxDiv.style.cssText =
+    'position:absolute; border:2px dashed #93c5fd; background:rgba(59,130,246,0.18); ' +
+    'pointer-events:none; z-index:999; left:0; top:0; width:0; height:0;';
+  map.getContainer().appendChild(boxDiv);
+});
+
+map.getContainer().addEventListener('mousemove', e => {
+  if (!boxSelectMode || !boxStart || !boxDiv) return;
+  const rect = map.getContainer().getBoundingClientRect();
+  const cur = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  const x = Math.min(boxStart.x, cur.x);
+  const y = Math.min(boxStart.y, cur.y);
+  boxDiv.style.left   = `${x}px`;
+  boxDiv.style.top    = `${y}px`;
+  boxDiv.style.width  = `${Math.abs(cur.x - boxStart.x)}px`;
+  boxDiv.style.height = `${Math.abs(cur.y - boxStart.y)}px`;
+});
+
+map.getContainer().addEventListener('mouseup', e => {
+  if (!boxSelectMode || !boxStart) return;
+  const rect = map.getContainer().getBoundingClientRect();
+  const cur = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  const start = boxStart;
+  boxStart = null;
+  if (boxDiv) { boxDiv.remove(); boxDiv = null; }
+
+  const dx = Math.abs(cur.x - start.x);
+  const dy = Math.abs(cur.y - start.y);
+  if (dx < 4 && dy < 4) return;  // accidental click, no drag
+
+  // Container-points → lat/lng bounds.
+  const sw = map.containerPointToLatLng([Math.min(start.x, cur.x), Math.max(start.y, cur.y)]);
+  const ne = map.containerPointToLatLng([Math.max(start.x, cur.x), Math.min(start.y, cur.y)]);
+  const bounds = L.latLngBounds(sw, ne);
+
+  // Gather reviewable markers whose centroid is inside.
+  bulkSelected = [];
+  const perLayer = {};
+  for (const [key, group] of Object.entries(layerGroups)) {
+    if (!LAYERS[key].reviewable) continue;
+    if (!groupVisibility[LAYERS[key].displayGroup]) continue;
+    group.eachLayer(l => {
+      // Marker may be wrapped in a markerCluster — recurse into getLayers.
+      const visit = (ll) => {
+        if (ll instanceof L.CircleMarker && ll._row && bounds.contains(ll.getLatLng())) {
+          bulkSelected.push({ layerKey: ll._layerKey, row: ll._row, marker: ll });
+          perLayer[ll._layerKey] = (perLayer[ll._layerKey] || 0) + 1;
+        }
+        if (ll.getLayers) ll.getLayers().forEach(visit);
+      };
+      visit(l);
+    });
+  }
+
+  if (bulkSelected.length === 0) {
+    alert('No reviewable candidates inside that rectangle.');
+    exitBoxSelectMode();
+    return;
+  }
+
+  const breakdown = Object.entries(perLayer).map(([k, n]) => `${k}: ${n}`).join(', ');
+  $bulkHeader.textContent = `${bulkSelected.length.toLocaleString()} building(s) selected`;
+  $bulkSubhead.textContent = breakdown;
+  $bulkNotes.value = '';
+  $bulkPanel.classList.add('visible');
+});
+
+// Bulk action buttons inside the panel
+for (const btn of $bulkPanel.querySelectorAll('button[data-bulk-status]')) {
+  btn.addEventListener('click', () => {
+    const status = btn.dataset.bulkStatus;  // '' means clear
+    const notes = $bulkNotes.value || '';
+    let n = 0;
+    for (const sel of bulkSelected) {
+      if (status === '') {
+        setReview(sel.layerKey, sel.row, null);
+      } else {
+        setReview(sel.layerKey, sel.row, { status, reviewed_notes: notes });
+      }
+      n++;
+    }
+    if (status === 'add_to_sc') {
+      // Opens once — the user can submit each via the SC form they're now on
+      window.open(SC_CREATE_URL, '_blank', 'noopener');
+    }
+    exitBoxSelectMode();
+    renderAll();
+    $ghStatus.textContent = status
+      ? `Applied "${STATUSES[status]?.label || status}" to ${n} building(s).`
+      : `Cleared ${n} review mark(s).`;
+  });
+}
+document.getElementById('bulk-cancel-btn').addEventListener('click', exitBoxSelectMode);
 
 // =============================================================================
 // Online mode: Cloudflare Worker proxy. Worker URL is hardcoded at top of file;
