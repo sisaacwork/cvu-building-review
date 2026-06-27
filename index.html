@@ -1,0 +1,1448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CVU Building Gap Review Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; height: 100vh; position: relative; }
+  header {
+    background: #1a1a1a; color: #fff; padding: 10px 16px;
+    display: flex; align-items: center; gap: 16px;
+    border-bottom: 1px solid #333; flex-shrink: 0; z-index: 20;
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.2px; }
+  header .file-picker { font-size: 13px; }
+  header .stats { margin-left: auto; font-size: 12px; opacity: 0.85; }
+  header .stats span { margin-left: 12px; }
+
+  #app { flex: 1; display: flex; min-height: 0; position: relative; }
+  #sidebar {
+    width: 300px; background: #f5f5f5; border-right: 1px solid #ddd;
+    padding: 12px 14px; overflow-y: auto; font-size: 13px; flex-shrink: 0;
+  }
+  #sidebar h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+                color: #666; margin: 14px 0 6px; font-weight: 600; }
+  #sidebar h2:first-child { margin-top: 0; }
+  #sidebar label { display: flex; align-items: center; padding: 3px 0; cursor: pointer; }
+  #sidebar label input { margin-right: 8px; }
+  #sidebar .swatch { width: 14px; height: 14px; display: inline-block; border-radius: 3px;
+                     margin-right: 6px; border: 1px solid rgba(0,0,0,0.2); flex-shrink: 0; }
+  #sidebar .count { margin-left: auto; color: #888; font-size: 11px; }
+  #sidebar .filter-row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+  #sidebar .filter-row input[type=number] { width: 60px; padding: 3px 5px; font-size: 12px; }
+  #sidebar select, #sidebar input[type=text], #sidebar input[type=password] {
+    width: 100%; padding: 5px; font-size: 12px; box-sizing: border-box;
+  }
+  #sidebar .hint { color: #888; font-size: 11px; line-height: 1.4; margin-top: 12px;
+                   border-top: 1px solid #ddd; padding-top: 10px; }
+  #sidebar .button {
+    width: 100%; background: #2563eb; color: #fff; border: 0; padding: 7px 10px;
+    border-radius: 4px; font-size: 13px; font-weight: 500; cursor: pointer; margin-top: 6px;
+    box-sizing: border-box;
+  }
+  #sidebar .button:hover { background: #1d4ed8; }
+  #sidebar .button.secondary { background: #555; }
+  #sidebar .button.secondary:hover { background: #444; }
+  #sidebar .review-stats { font-size: 11px; color: #555; margin-top: 4px; }
+  #sidebar .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: #fde68a; color: #78350f; padding: 2px 6px; border-radius: 10px;
+    font-size: 11px; margin: 2px 4px 2px 0;
+  }
+  #sidebar .chip button {
+    border: 0; background: transparent; color: #78350f; font-size: 13px;
+    cursor: pointer; padding: 0; line-height: 1;
+  }
+  #sidebar .row-stack > * { margin-bottom: 4px; }
+
+  #map { flex: 1; background: #1a1a1a; position: relative; z-index: 1; }
+  .leaflet-container { background: #1a1a1a; }
+
+  /* Drop zone overlay */
+  #drop-zone {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(20,20,20,0.92); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 999; pointer-events: none; opacity: 0; transition: opacity 0.15s ease;
+  }
+  #drop-zone.active { opacity: 1; pointer-events: auto; }
+  #drop-zone .inner { border: 2px dashed #888; padding: 60px 80px; border-radius: 8px; text-align: center; }
+  #drop-zone h2 { margin: 0 0 8px; font-size: 24px; }
+  #drop-zone p { margin: 0; color: #aaa; }
+
+  /* Startup overlay — Safari-safe positioning */
+  #welcome {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: #1a1a1a; color: #fff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 9999; padding: 40px; text-align: center; isolation: isolate;
+  }
+  #welcome.hidden { display: none !important; }
+  #welcome h2 { margin: 0 0 12px; font-size: 22px; font-weight: 600; }
+  #welcome p { margin: 6px 0; color: #aaa; max-width: 620px; line-height: 1.6; }
+  #welcome .button {
+    margin-top: 24px; background: #2563eb; color: #fff;
+    padding: 10px 20px; border: 0; border-radius: 4px; font-size: 14px;
+    cursor: pointer; font-weight: 500;
+  }
+  #welcome .button:hover { background: #1d4ed8; }
+  #welcome code { background: #2a2a2a; padding: 2px 6px; border-radius: 3px;
+                  font-size: 12px; color: #f0f0f0; }
+
+  /* Popups */
+  .leaflet-popup-content { font-size: 13px; line-height: 1.5; min-width: 260px; max-width: 340px; }
+  .leaflet-popup-content h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600;
+                              border-bottom: 1px solid #eee; padding-bottom: 4px; }
+  .leaflet-popup-content .field { display: flex; justify-content: space-between; gap: 8px; }
+  .leaflet-popup-content .field .label { color: #666; }
+  .leaflet-popup-content .field .value { font-weight: 500; text-align: right; word-break: break-all; }
+  .leaflet-popup-content a.name-link { color: #1976d2; font-weight: 600; text-decoration: none; }
+  .leaflet-popup-content a.name-link:hover { text-decoration: underline; }
+  .leaflet-popup-content .actions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .leaflet-popup-content .actions a,
+  .leaflet-popup-content .actions button {
+    flex: 1; min-width: 90px; text-align: center; background: #2563eb; color: #fff;
+    text-decoration: none; padding: 5px 8px; border-radius: 3px; font-size: 12px;
+    border: 0; cursor: pointer; font-family: inherit;
+  }
+  .leaflet-popup-content .actions a.secondary,
+  .leaflet-popup-content .actions button.secondary { background: #555; }
+  .leaflet-popup-content .badge {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 11px; font-weight: 500; color: #fff;
+  }
+  .leaflet-popup-content .review-block {
+    margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee;
+  }
+  .leaflet-popup-content .review-block textarea {
+    width: 100%; box-sizing: border-box; min-height: 38px; font-family: inherit;
+    font-size: 12px; padding: 4px; resize: vertical;
+  }
+  .leaflet-popup-content .review-actions {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 6px;
+  }
+  .leaflet-popup-content .review-actions button {
+    padding: 5px 8px; font-size: 11px; font-weight: 500; color: #fff;
+    border: 0; border-radius: 3px; cursor: pointer; font-family: inherit;
+  }
+  .leaflet-popup-content .review-actions button.full { grid-column: 1 / -1; }
+  .leaflet-popup-content .review-actions .btn-false-positive { background: #6b7280; }
+  .leaflet-popup-content .review-actions .btn-tower          { background: #a855f7; }
+  .leaflet-popup-content .review-actions .btn-existing-cvu   { background: #1976d2; }
+  .leaflet-popup-content .review-actions .btn-add-to-sc      { background: #16a34a; }
+  .leaflet-popup-content .review-actions .btn-flagged        { background: #f59e0b; }
+  .leaflet-popup-content .review-actions .btn-unreview       { background: #444; }
+  .leaflet-popup-content .review-actions button:hover { filter: brightness(0.92); }
+  .leaflet-popup-content .reviewed-tag {
+    background: #dcfce7; color: #166534; padding: 2px 6px; border-radius: 3px;
+    font-size: 11px; font-weight: 500; display: inline-block; margin-bottom: 4px;
+  }
+  .leaflet-popup-content .reviewed-tag.false_positive { background: #f3f4f6; color: #4b5563; }
+  .leaflet-popup-content .reviewed-tag.tower          { background: #f3e8ff; color: #6b21a8; }
+  .leaflet-popup-content .reviewed-tag.existing_cvu   { background: #dbeafe; color: #1e40af; }
+  .leaflet-popup-content .reviewed-tag.add_to_sc      { background: #dcfce7; color: #166534; }
+  .leaflet-popup-content .reviewed-tag.flagged        { background: #fef3c7; color: #92400e; }
+
+  /* Admin polygon hover hint */
+  .leaflet-interactive.admin-hover { cursor: pointer; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>CVU Building Gap Review</h1>
+  <div class="file-picker">
+    <input type="file" id="file-input" multiple accept=".csv,.geojson" style="font-size:12px;">
+    <span style="margin-left:8px; color:#aaa; font-size:12px;">— or drag the <code style="background:#333;padding:1px 4px;border-radius:3px">data/&lt;ISO&gt;/</code> folder onto the page</span>
+  </div>
+  <div class="stats" id="header-stats"></div>
+</header>
+
+<div id="app">
+  <div id="sidebar">
+    <h2>Data source</h2>
+    <div id="gh-config" class="row-stack">
+      <input type="text"     id="gh-worker"   placeholder="Worker URL (e.g. https://cvu-dash-proxy.workers.dev)">
+      <input type="password" id="gh-pat"      placeholder="Dashboard password">
+      <input type="text"     id="gh-reviewer" placeholder="Your name (for commit attribution)">
+      <div style="display:flex; gap:4px;">
+        <button class="button" id="gh-load-btn" style="flex:1;">Load manifest</button>
+        <button class="button secondary" id="gh-clear-btn" style="width:auto; padding:7px 10px;" title="Forget saved config">Forget</button>
+      </div>
+      <select id="gh-country" style="display:none;">
+        <option value="">— pick a country —</option>
+      </select>
+      <div id="gh-status" style="font-size:11px; color:#666;"></div>
+    </div>
+
+    <h2>Layers</h2>
+    <div id="layer-toggles"></div>
+
+    <h2>Filter: confirmed by</h2>
+    <div id="confirmed-toggles">
+      <label><input type="checkbox" data-confirmed="osm+gba" checked> osm + gba (highest)</label>
+      <label><input type="checkbox" data-confirmed="gba" checked> gba only</label>
+      <label><input type="checkbox" data-confirmed="osm" checked> osm only</label>
+    </div>
+
+    <h2>Filter: review status</h2>
+    <div id="status-toggles">
+      <label><input type="checkbox" data-status="unreviewed" checked> Unreviewed</label>
+      <label><input type="checkbox" data-status="flagged" checked> Flagged for review</label>
+      <label><input type="checkbox" data-status="add_to_sc" checked> Added to SC</label>
+      <label><input type="checkbox" data-status="existing_cvu" checked> Existing CVU</label>
+      <label><input type="checkbox" data-status="tower" checked> Tower</label>
+      <label><input type="checkbox" data-status="false_positive"> False positive (hidden by default)</label>
+    </div>
+
+    <h2>Filter: height (m)</h2>
+    <div class="filter-row">
+      <input type="number" id="height-min" placeholder="min" value="80" style="width:60px;">
+      <span>to</span>
+      <input type="number" id="height-max" placeholder="max" style="width:60px;">
+    </div>
+
+    <h2>Filter: city tag</h2>
+    <select id="city-filter"><option value="">All cities</option></select>
+
+    <h2>Filter: admin area <span style="color:#888; text-transform:none; font-weight:400; font-size:11px;">(click on map)</span></h2>
+    <div id="active-admin-filter" style="min-height: 22px; font-size: 11px; color: #888;">
+      <em>Click an adm1/adm2/UC polygon to filter to it</em>
+    </div>
+    <button class="button secondary" id="clear-admin-filter-btn" style="margin-top: 4px; display: none;">Clear admin filter</button>
+
+    <h2>Reviewed items</h2>
+    <div class="review-stats" id="review-stats">0 reviewed</div>
+    <button class="button" id="save-github-btn" style="display:none;">Save reviews to GitHub</button>
+    <button class="button secondary" id="export-csv-btn">Download reviews.csv (local)</button>
+    <button class="button secondary" id="clear-reviews-btn">Clear all review marks</button>
+
+    <h2>Basemap</h2>
+    <select id="basemap-select">
+      <option value="esri-sat" selected>Esri Satellite Imagery</option>
+      <option value="osm">OpenStreetMap</option>
+      <option value="esri-streets">Esri Streets</option>
+      <option value="carto-dark">Carto Dark</option>
+    </select>
+
+    <h2>Display</h2>
+    <label><input type="checkbox" id="show-polygons" checked> Show building polygons</label>
+    <label><input type="checkbox" id="show-admin" checked> Show admin/UC overlays</label>
+    <label><input type="checkbox" id="cluster-points"> Cluster points (faster for many)</label>
+    <label><input type="checkbox" id="size-by-height" checked> Size dots by height</label>
+
+    <div class="hint">
+      Click a candidate marker, then pick the right action: <strong>False Positive</strong>, <strong>Tower</strong>, <strong>Existing CVU</strong>, <strong>Add to SC</strong>, or <strong>Flag for Review</strong>. Notes optional. Your marks save to <code>reviews.csv</code> on click of <strong>Save</strong>.
+    </div>
+  </div>
+
+  <div id="map"></div>
+</div>
+
+<div id="drop-zone">
+  <div class="inner">
+    <h2>Drop the country folder here</h2>
+    <p>All CSVs + admin.geojson from one <code>data/&lt;ISO&gt;/</code> folder.</p>
+  </div>
+</div>
+
+<div id="welcome">
+  <h2>CVU Building Gap Review</h2>
+  <p><strong>Online mode:</strong> enter the Worker URL, dashboard password, and your name in the sidebar, click <em>Load manifest</em>, then pick a country.</p>
+  <p><strong>Local mode:</strong> drag a <code>data/&lt;ISO&gt;/</code> folder onto this page or use the file picker in the header to load CSVs straight from disk.</p>
+  <button class="button" onclick="document.getElementById('file-input').click()">Load files from disk…</button>
+</div>
+
+<script>
+// =============================================================================
+// Layer definitions — internal keys, color rules, display groups.
+// =============================================================================
+const LAYERS = {
+  'likely_new': {
+    file: 'likely_new.csv',
+    label: 'Likely not in database',
+    displayGroup: 'likely_new',
+    pointMode: 'category',
+    categoryColors: { 'osm+gba': '#d32f2f', 'gba': '#f57c00', 'osm': '#fbc02d' },
+    defaultColor: '#d32f2f',
+    polygonOpacity: 0.35,
+    reviewable: true, defaultVisible: true,
+  },
+  'borderline': {
+    file: 'borderline.csv',
+    label: 'Manual review',
+    displayGroup: 'borderline',
+    color: '#7b1fa2', polygonOpacity: 0.3,
+    reviewable: true, defaultVisible: true,
+  },
+  'likely_already_in_cvu': {
+    file: 'likely_already_in_cvu.csv',
+    label: 'Existing SC buildings',
+    displayGroup: 'existing',
+    color: '#1976d2', polygonOpacity: 0.2,
+    reviewable: false, defaultVisible: true,
+  },
+  'cvu_china': {
+    file: 'cvu_china.csv', file_alt: ['cvu_chn.csv', 'cvu.csv'],
+    label: 'Existing SC buildings',
+    displayGroup: 'existing',
+    color: '#1976d2',
+    isCvu: true, reviewable: false, defaultVisible: true,
+  },
+  'cvu_coord_quality': {
+    file: 'cvu_coord_quality.csv',
+    label: 'Coord review',
+    displayGroup: 'coord_review',
+    color: '#e91e63',
+    isCvu: true, reviewable: true, defaultVisible: false,
+  },
+};
+
+const DISPLAY_GROUPS = {
+  'likely_new':    { label: 'Likely not in database', representativeColor: '#d32f2f' },
+  'borderline':    { label: 'Manual review',          representativeColor: '#7b1fa2' },
+  'existing':      { label: 'Existing SC buildings',  representativeColor: '#1976d2' },
+  'coord_review':  { label: 'Coord review',           representativeColor: '#e91e63' },
+};
+
+// Status enum — what the granular review buttons set.
+const STATUSES = {
+  unreviewed:     { label: 'Unreviewed',     color: null },              // use layer color
+  false_positive: { label: 'False positive', color: '#6b7280' },
+  tower:          { label: 'Tower',          color: '#a855f7' },
+  existing_cvu:   { label: 'Existing CVU',   color: '#1976d2' },
+  add_to_sc:      { label: 'Added to SC',    color: '#16a34a' },
+  flagged:        { label: 'Flagged',        color: '#f59e0b' },
+};
+
+const SC_EDIT_URL    = (id) => `https://www.skyscrapercenter.com/admin/building/${id}/edit`;
+const SC_CREATE_URL  = 'https://www.skyscrapercenter.com/admin/building/create';
+
+// =============================================================================
+// Height-scaled marker radius. log2-based so very tall buildings stand out
+// without dwarfing the map. Clamped to [3, 18] px.
+// =============================================================================
+function heightToRadius(h, sizeByHeight) {
+  if (!sizeByHeight) return 5;
+  if (h == null || !Number.isFinite(h)) return 4;
+  const r = 4 + 5 * Math.log2(Math.max(h, 40) / 80);
+  return Math.max(3, Math.min(18, r));
+}
+
+// =============================================================================
+// Review state — country-scoped localStorage keys + sidecar reviews.csv.
+//
+// localStorage key format:  cvu-gap-review:<ISO>:<sig>
+// reviews.csv schema:       signature,status,reviewed_at,reviewed_notes,cvu_id
+// =============================================================================
+const REVIEW_KEY_PREFIX = 'cvu-gap-review:';
+let loadedISO = null;
+
+function rowReviewSignature(layerKey, row) {
+  const cfg = LAYERS[layerKey];
+  if (!cfg.reviewable) return null;
+  if (cfg.isCvu) return row.cvu_id != null ? `cvu:${row.cvu_id}` : null;
+  const id = row.src_id || row.gba_id || row.id;
+  if (id == null || id === '') return null;
+  return `${row.source_dataset || 'unknown'}:${id}`;
+}
+
+function reviewKey(layerKey, row) {
+  const sig = rowReviewSignature(layerKey, row);
+  if (!sig) return null;
+  return `${REVIEW_KEY_PREFIX}${loadedISO || 'LOCAL'}:${sig}`;
+}
+
+function getReview(layerKey, row) {
+  const k = reviewKey(layerKey, row);
+  if (!k) return null;
+  const v = localStorage.getItem(k);
+  return v ? JSON.parse(v) : null;
+}
+
+function setReview(layerKey, row, state) {
+  const k = reviewKey(layerKey, row);
+  if (!k) return;
+  if (state) {
+    localStorage.setItem(k, JSON.stringify({
+      status: state.status,
+      reviewed_at: state.reviewed_at || new Date().toISOString(),
+      reviewed_notes: state.reviewed_notes || '',
+      cvu_id: state.cvu_id || '',
+    }));
+  } else {
+    localStorage.removeItem(k);
+  }
+  updateReviewStats();
+}
+
+function currentScopePrefix() {
+  return `${REVIEW_KEY_PREFIX}${loadedISO || 'LOCAL'}:`;
+}
+
+function countReviewed() {
+  const prefix = currentScopePrefix();
+  let n = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(prefix)) n++;
+  }
+  return n;
+}
+
+function updateReviewStats() {
+  const n = countReviewed();
+  document.getElementById('review-stats').textContent =
+    n === 0 ? '0 reviewed' : `${n.toLocaleString()} reviewed for ${loadedISO || 'LOCAL'} (saved locally — click Save to push to repo)`;
+}
+
+function buildReviewsCsv() {
+  const prefix = currentScopePrefix();
+  const lines = ['signature,status,reviewed_at,reviewed_notes,cvu_id'];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith(prefix)) continue;
+    let v; try { v = JSON.parse(localStorage.getItem(k)); } catch (_) { continue; }
+    const sig = k.slice(prefix.length);
+    lines.push([
+      sig,
+      v.status || 'flagged',
+      v.reviewed_at || '',
+      csvEscape(v.reviewed_notes || ''),
+      v.cvu_id || '',
+    ].join(','));
+  }
+  return lines.join('\n') + '\n';
+}
+
+function ingestReviewsCsv(text) {
+  if (!text) return 0;
+  const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+  const prefix = currentScopePrefix();
+  let n = 0;
+  for (const row of (parsed.data || [])) {
+    if (!row.signature) continue;
+    // Back-compat: older sidecars had no status column — treat as flagged.
+    const status = row.status && STATUSES[row.status] ? row.status : 'flagged';
+    localStorage.setItem(prefix + row.signature, JSON.stringify({
+      status,
+      reviewed_at: row.reviewed_at || '',
+      reviewed_notes: row.reviewed_notes || '',
+      cvu_id: row.cvu_id || '',
+    }));
+    n++;
+  }
+  return n;
+}
+
+function migrateLegacyReviewedColumn(layerKey, rows) {
+  let n = 0;
+  for (const r of rows) {
+    if (!r.reviewed || r.reviewed === '' || r.reviewed === 'false') continue;
+    const sig = rowReviewSignature(layerKey, r);
+    if (!sig) continue;
+    const k = currentScopePrefix() + sig;
+    if (localStorage.getItem(k)) continue;
+    localStorage.setItem(k, JSON.stringify({
+      status: 'flagged',
+      reviewed_at: r.reviewed_at || '',
+      reviewed_notes: r.reviewed_notes || '',
+      cvu_id: '',
+    }));
+    n++;
+  }
+  return n;
+}
+
+// =============================================================================
+// Map
+// =============================================================================
+const map = L.map('map', { preferCanvas: true, zoomControl: true }).setView([34, 110], 4);
+
+const basemaps = {
+  'esri-sat':     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',  { attribution: 'Tiles © Esri', maxZoom: 19 }),
+  'osm':          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',                                              { attribution: '© OpenStreetMap', maxZoom: 19 }),
+  'esri-streets': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{ attribution: 'Tiles © Esri', maxZoom: 19 }),
+  'carto-dark':   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',                                       { attribution: '© OpenStreetMap, © CARTO', maxZoom: 19 }),
+};
+let currentBasemap = 'esri-sat';
+basemaps[currentBasemap].addTo(map);
+
+document.getElementById('basemap-select').addEventListener('change', e => {
+  basemaps[currentBasemap].remove();
+  currentBasemap = e.target.value;
+  basemaps[currentBasemap].addTo(map);
+});
+
+// =============================================================================
+// Data store + visibility state
+// =============================================================================
+const data = {};            // layerKey -> array of row objects
+const layerGroups = {};     // layerKey -> Leaflet layerGroup
+const groupVisibility = {}; // displayGroup -> bool
+let cityValues = new Set();
+
+for (const g of Object.keys(DISPLAY_GROUPS)) {
+  const memberKey = Object.keys(LAYERS).find(k => LAYERS[k].displayGroup === g);
+  groupVisibility[g] = LAYERS[memberKey].defaultVisible !== false;
+}
+
+function ensureLayerGroup(key) {
+  if (!layerGroups[key]) {
+    layerGroups[key] = L.layerGroup();
+    if (groupVisibility[LAYERS[key].displayGroup]) layerGroups[key].addTo(map);
+  }
+  return layerGroups[key];
+}
+
+// =============================================================================
+// WKT polygon parser (POLYGON + MULTIPOLYGON)
+// =============================================================================
+function parseWkt(wkt) {
+  if (!wkt || typeof wkt !== 'string') return null;
+  wkt = wkt.trim();
+  if (wkt.startsWith('POLYGON')) {
+    const m = wkt.match(/\(\(([\s\S]+?)\)\)/);
+    if (!m) return null;
+    return [m[1].split(',').map(p => {
+      const [lon, lat] = p.trim().split(/\s+/).map(Number);
+      return [lat, lon];
+    })];
+  }
+  if (wkt.startsWith('MULTIPOLYGON')) {
+    const rings = [];
+    const re = /\(\(([\s\S]+?)\)\)/g;
+    let m;
+    while ((m = re.exec(wkt)) !== null) {
+      rings.push(m[1].split(',').map(p => {
+        const [lon, lat] = p.trim().split(/\s+/).map(Number);
+        return [lat, lon];
+      }));
+    }
+    return rings;
+  }
+  return null;
+}
+
+// =============================================================================
+// Popups
+// =============================================================================
+let _popupSeq = 0;
+const _popupHandlers = {};  // popupId -> {layerKey, row, marker}
+
+function buildPopup(row, layerKey, marker) {
+  const lat = row.centroid_lat ?? row.lat;
+  const lon = row.centroid_lon ?? row.lon;
+  const cfg = LAYERS[layerKey];
+  const isCvu = cfg.isCvu;
+  const groupLabel = DISPLAY_GROUPS[cfg.displayGroup].label;
+
+  // CVU-existing layer: name links to SC backend edit page.
+  let cvuName = row.name;
+  if (isCvu && row.cvu_id != null && row.name) {
+    cvuName = `<a class="name-link" href="${SC_EDIT_URL(row.cvu_id)}" target="_blank" rel="noopener">${row.name}</a>`;
+  }
+
+  const fields = isCvu
+    ? [
+        ['CVU ID',     row.cvu_id != null ? `<a class="name-link" href="${SC_EDIT_URL(row.cvu_id)}" target="_blank" rel="noopener">${row.cvu_id}</a>` : ''],
+        ['Name',       cvuName],
+        ['Height (m)', row.height_m],
+        ['Status',     row.status],
+        ['Year',       row.year_completed],
+        ['City',       row.city],
+      ]
+    : [
+        ['Height (m)',      row.height_m],
+        ['Uncertainty var', row.var],
+        ['Source',          row.source_dataset],
+        ['Confirmed by',    row.confirmed_by],
+        ['Match label',     row.match_label],
+        ['Nearest CVU',     row.nearest_cvu_name ? `${row.nearest_cvu_name} (${row.distance_m} m, Δh ${row.height_delta_m} m)` : ''],
+        ['City',            row.city],
+        ['Source ID',       row.src_id || row.gba_id || row.id],
+      ];
+
+  let badge = '';
+  if (row.confirmed_by) {
+    const c = (LAYERS.likely_new.categoryColors || {})[row.confirmed_by] || '#999';
+    badge = `<span class="badge" style="background:${c}">${row.confirmed_by}</span> `;
+  }
+
+  const review = getReview(layerKey, row);
+  const popupId = `popup-${++_popupSeq}`;
+  _popupHandlers[popupId] = { layerKey, row, marker };
+
+  let reviewBlock = '';
+  if (cfg.reviewable) {
+    const reviewedTag = review ? `
+      <div class="reviewed-tag ${review.status}">
+        ${STATUSES[review.status]?.label || review.status}
+        · ${review.reviewed_at ? new Date(review.reviewed_at).toLocaleString() : ''}
+        ${review.cvu_id ? ` · CVU ${review.cvu_id}` : ''}
+      </div>` : '';
+
+    reviewBlock = `
+      <div class="review-block">
+        ${reviewedTag}
+        <textarea id="${popupId}-notes" placeholder="Notes (optional)">${review?.reviewed_notes || ''}</textarea>
+        <div class="review-actions">
+          <button class="btn-false-positive" onclick="setStatus('${popupId}','false_positive')">False Positive</button>
+          <button class="btn-tower"          onclick="setStatus('${popupId}','tower')">Tower</button>
+          <button class="btn-existing-cvu"   onclick="setStatus('${popupId}','existing_cvu')">Existing CVU…</button>
+          <button class="btn-add-to-sc"      onclick="setStatus('${popupId}','add_to_sc')">Add to SC ↗</button>
+          <button class="btn-flagged full"   onclick="setStatus('${popupId}','flagged')">Flag for Review</button>
+          ${review ? `<button class="btn-unreview full" onclick="setStatus('${popupId}', null)">Clear review</button>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <h3>${badge}${groupLabel}</h3>
+    ${fields
+      .filter(f => f[1] !== undefined && f[1] !== '' && f[1] !== null && !Number.isNaN(f[1]))
+      .map(f => `<div class="field"><span class="label">${f[0]}</span><span class="value">${f[1]}</span></div>`).join('')}
+    <div class="actions">
+      <a href="https://www.google.com/maps/@${lat},${lon},19z/data=!3m1!1e3" target="_blank" rel="noopener">Open in Google Maps</a>
+      <button class="secondary" onclick="navigator.clipboard.writeText('${lat}, ${lon}')">Copy coords</button>
+    </div>
+    ${reviewBlock}
+  `;
+}
+
+// Granular review-action setter. Called from popup buttons.
+function setStatus(popupId, status) {
+  const h = _popupHandlers[popupId];
+  if (!h) return;
+  const { layerKey, row, marker } = h;
+  const notes = document.getElementById(`${popupId}-notes`)?.value || '';
+
+  if (status === null) {
+    // Clear
+    setReview(layerKey, row, null);
+  } else if (status === 'existing_cvu') {
+    const existing = getReview(layerKey, row);
+    const prefill = existing?.cvu_id || '';
+    const cvu_id = (prompt('Enter the existing CVU building ID:', prefill) || '').trim();
+    if (!cvu_id) return;  // cancelled
+    setReview(layerKey, row, { status, reviewed_notes: notes, cvu_id });
+  } else if (status === 'add_to_sc') {
+    setReview(layerKey, row, { status, reviewed_notes: notes });
+    window.open(SC_CREATE_URL, '_blank', 'noopener');
+  } else {
+    setReview(layerKey, row, { status, reviewed_notes: notes });
+  }
+
+  // Refresh popup content in place
+  if (marker && marker.getPopup()) {
+    marker.setPopupContent(buildPopup(row, layerKey, marker));
+  }
+  restyleFeature(layerKey, row, marker);
+  renderLayer(layerKey);  // re-apply status filter (hides false-positives, etc.)
+}
+window.setStatus = setStatus;
+
+// =============================================================================
+// Marker styling — color by review status, size by height
+// =============================================================================
+function colorForRow(layerKey, row) {
+  const cfg = LAYERS[layerKey];
+  if (cfg.pointMode === 'category' && row.confirmed_by && cfg.categoryColors[row.confirmed_by]) {
+    return cfg.categoryColors[row.confirmed_by];
+  }
+  return cfg.color;
+}
+
+function styleFor(layerKey, row) {
+  const cfg = LAYERS[layerKey];
+  const sizeByHeight = document.getElementById('size-by-height')?.checked ?? true;
+  const baseRadius = heightToRadius(row.height_m, sizeByHeight);
+  const baseColor = colorForRow(layerKey, row);
+  const review = getReview(layerKey, row);
+
+  if (review && STATUSES[review.status]?.color) {
+    return {
+      radius: baseRadius + 1,
+      color: STATUSES[review.status].color,    // ring
+      fillColor: STATUSES[review.status].color,
+      fillOpacity: 0.55,
+      weight: 2.5,
+    };
+  }
+  return {
+    radius: baseRadius,
+    color: baseColor,
+    fillColor: baseColor,
+    fillOpacity: 0.9,
+    weight: 1.5,
+  };
+}
+
+function restyleFeature(layerKey, row, marker) {
+  if (marker && marker.setStyle) marker.setStyle(styleFor(layerKey, row));
+  const rid = rowGeomId(layerKey, row);
+  if (!rid) return;
+  for (const lk of Object.keys(layerGroups)) {
+    layerGroups[lk].eachLayer(l => {
+      if (l instanceof L.Polygon && l._rowId === rid) {
+        const review = getReview(layerKey, row);
+        const polyColor = (review && STATUSES[review.status]?.color) || colorForRow(layerKey, row);
+        l.setStyle({
+          color: polyColor,
+          weight: review ? 2.5 : 1.5,
+          fillColor: polyColor,
+          fillOpacity: review ? 0.25 : (LAYERS[layerKey].polygonOpacity ?? 0.3),
+        });
+      }
+    });
+  }
+}
+
+function rowGeomId(layerKey, row) {
+  const cfg = LAYERS[layerKey];
+  if (cfg.isCvu) return `${layerKey}:${row.cvu_id}`;
+  const id = row.src_id || row.gba_id || row.id;
+  return `${layerKey}:${row.source_dataset || ''}:${id}`;
+}
+
+// =============================================================================
+// Rendering — point-in-polygon (admin filter) helper + main renderer
+// =============================================================================
+const adminFilterSet = new Set();  // keys like "adm2:Shanghaishi"
+const adminFeatures = [];          // parsed admin features for filtering
+
+function pointInAnyAdmin(lat, lon) {
+  if (adminFilterSet.size === 0) return true;
+  for (const f of adminFeatures) {
+    if (!adminFilterSet.has(f._key)) continue;
+    if (pointInGeoJSONFeature([lon, lat], f)) return true;
+  }
+  return false;
+}
+
+function pointInGeoJSONFeature(pt, feat) {
+  const g = feat.geometry;
+  if (!g) return false;
+  if (g.type === 'Polygon')      return pointInPolygonRings(pt, g.coordinates);
+  if (g.type === 'MultiPolygon') return g.coordinates.some(rs => pointInPolygonRings(pt, rs));
+  return false;
+}
+
+// Standard ray-casting; expects pt = [lon, lat] and rings = [outer, holes...]
+function pointInPolygonRings(pt, rings) {
+  if (!rings || !rings.length) return false;
+  if (!ringContains(pt, rings[0])) return false;
+  for (let i = 1; i < rings.length; i++) if (ringContains(pt, rings[i])) return false;
+  return true;
+}
+function ringContains(pt, ring) {
+  let inside = false;
+  const [x, y] = pt;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi)) inside = !inside;
+  }
+  return inside;
+}
+
+function renderLayer(key) {
+  const group = ensureLayerGroup(key);
+  group.clearLayers();
+  if (!data[key]) return;
+  if (!groupVisibility[LAYERS[key].displayGroup]) return;
+
+  const cfg = LAYERS[key];
+  const heightMin = parseFloat(document.getElementById('height-min').value) || -Infinity;
+  const heightMax = parseFloat(document.getElementById('height-max').value) || Infinity;
+  const cityFilter = document.getElementById('city-filter').value;
+  const showPolygons = document.getElementById('show-polygons').checked;
+  const useCluster = document.getElementById('cluster-points').checked;
+
+  const confirmedAllowed = new Set(
+    Array.from(document.querySelectorAll('#confirmed-toggles input:checked')).map(el => el.dataset.confirmed)
+  );
+  const statusAllowed = new Set(
+    Array.from(document.querySelectorAll('#status-toggles input:checked')).map(el => el.dataset.status)
+  );
+
+  const filtered = data[key].filter(r => {
+    const lat = r.centroid_lat ?? r.lat;
+    const lon = r.centroid_lon ?? r.lon;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+    const h = r.height_m;
+    if (h !== undefined && h !== null && Number.isFinite(h)) {
+      if (h < heightMin || h > heightMax) return false;
+    }
+    if (cityFilter && r.city !== cityFilter) return false;
+    if (r.confirmed_by && !confirmedAllowed.has(r.confirmed_by)) return false;
+
+    // Status filter (only applies to reviewable layers)
+    if (cfg.reviewable) {
+      const review = getReview(key, r);
+      const status = review?.status || 'unreviewed';
+      if (!statusAllowed.has(status)) return false;
+    }
+
+    // Admin-area filter
+    if (!pointInAnyAdmin(lat, lon)) return false;
+    return true;
+  });
+
+  let target = group;
+  let cluster = null;
+  if (useCluster) {
+    cluster = L.markerClusterGroup({ chunkedLoading: true, maxClusterRadius: 40 });
+    group.addLayer(cluster);
+    target = cluster;
+  }
+
+  for (const r of filtered) {
+    const lat = r.centroid_lat ?? r.lat;
+    const lon = r.centroid_lon ?? r.lon;
+    const m = L.circleMarker([lat, lon], styleFor(key, r));
+    const popupBuilder = () => buildPopup(r, key, m);
+    m.bindPopup(popupBuilder);
+    if (useCluster) cluster.addLayer(m); else group.addLayer(m);
+
+    if (showPolygons && r.geometry_wkt) {
+      const rings = parseWkt(r.geometry_wkt);
+      if (rings && rings.length) {
+        const review = getReview(key, r);
+        const polyColor = (review && STATUSES[review.status]?.color) || colorForRow(key, r);
+        const poly = L.polygon(rings, {
+          color: polyColor,
+          weight: review ? 2.5 : 1.5,
+          fillColor: polyColor,
+          fillOpacity: review ? 0.25 : (cfg.polygonOpacity ?? 0.3),
+        });
+        poly._rowId = rowGeomId(key, r);
+        poly.bindPopup(popupBuilder);
+        group.addLayer(poly);
+      }
+    }
+  }
+  updateGroupCounts();
+}
+
+function renderAll() {
+  for (const key of Object.keys(LAYERS)) renderLayer(key);
+  updateGroupCounts();
+  updateHeaderStats();
+}
+
+function updateGroupCounts() {
+  const tally = {};
+  for (const key of Object.keys(LAYERS)) {
+    const g = LAYERS[key].displayGroup;
+    tally[g] = (tally[g] || 0);
+    const grp = layerGroups[key];
+    if (!grp) continue;
+    let n = 0;
+    grp.eachLayer(l => {
+      if (l instanceof L.CircleMarker) n++;
+      if (l.getLayers) { try { n += l.getLayers().filter(x => x instanceof L.CircleMarker).length; } catch (_) {} }
+    });
+    tally[g] += n;
+  }
+  for (const [g, n] of Object.entries(tally)) {
+    const el = document.querySelector(`#layer-toggles label[data-group="${g}"] .count`);
+    if (el) el.textContent = n.toLocaleString();
+  }
+}
+
+function updateHeaderStats() {
+  const parts = [];
+  for (const [g, cfg] of Object.entries(DISPLAY_GROUPS)) {
+    let n = 0;
+    for (const key of Object.keys(LAYERS)) {
+      if (LAYERS[key].displayGroup === g) n += (data[key] || []).length;
+    }
+    if (n) parts.push(`<span style="color:${cfg.representativeColor}">●</span> ${cfg.label}: ${n.toLocaleString()}`);
+  }
+  document.getElementById('header-stats').innerHTML = parts.join('');
+}
+
+// =============================================================================
+// Sidebar layer toggles
+// =============================================================================
+function buildLayerToggles() {
+  const c = document.getElementById('layer-toggles');
+  c.innerHTML = '';
+  for (const [g, cfg] of Object.entries(DISPLAY_GROUPS)) {
+    const label = document.createElement('label');
+    label.dataset.group = g;
+    label.innerHTML = `
+      <input type="checkbox" data-group="${g}" ${groupVisibility[g] ? 'checked' : ''}>
+      <span class="swatch" style="background:${cfg.representativeColor}"></span>
+      ${cfg.label}
+      <span class="count"></span>
+    `;
+    label.querySelector('input').addEventListener('change', e => {
+      groupVisibility[g] = e.target.checked;
+      for (const key of Object.keys(LAYERS)) {
+        if (LAYERS[key].displayGroup !== g) continue;
+        if (e.target.checked) { ensureLayerGroup(key).addTo(map); renderLayer(key); }
+        else if (layerGroups[key]) { layerGroups[key].clearLayers(); map.removeLayer(layerGroups[key]); }
+      }
+      updateGroupCounts();
+    });
+    c.appendChild(label);
+  }
+}
+buildLayerToggles();
+
+// =============================================================================
+// Admin polygon overlay (adm1 / adm2 / urban centres)
+// =============================================================================
+let adminLayerGroup = null;
+
+function clearAdminLayer() {
+  if (adminLayerGroup) { map.removeLayer(adminLayerGroup); adminLayerGroup = null; }
+  adminFeatures.length = 0;
+  adminFilterSet.clear();
+  renderActiveAdminChips();
+}
+
+function styleAdmin(level) {
+  if (level === 'adm0') return { color: '#fde047', weight: 2,   fill: false };
+  if (level === 'adm1') return { color: '#fde047', weight: 1.2, fillColor: '#fde047', fillOpacity: 0.04 };
+  if (level === 'adm2') return { color: '#fbbf24', weight: 0.9, fillColor: '#fbbf24', fillOpacity: 0.05 };
+  if (level === 'uc')   return { color: '#f97316', weight: 1,   fillColor: '#f97316', fillOpacity: 0.10, dashArray: '3,3' };
+  return { color: '#888', weight: 1 };
+}
+function styleAdminSelected(level) {
+  return { ...styleAdmin(level), weight: 3, fillOpacity: 0.20 };
+}
+
+function loadAdminGeojson(geojson) {
+  clearAdminLayer();
+  if (!geojson || !geojson.features) return;
+  adminLayerGroup = L.layerGroup();
+
+  for (const f of geojson.features) {
+    const level = f.properties?.level || 'adm?';
+    const name  = f.properties?.name  || '';
+    f._key = `${level}:${name}`;
+    adminFeatures.push(f);
+
+    const polyLayer = L.geoJSON(f, { style: () => styleAdmin(level), interactive: true });
+    polyLayer.on('click', () => toggleAdminFilter(f._key, name, level, polyLayer));
+    polyLayer.on('mouseover', e => e.target.setStyle({ ...styleAdmin(level), weight: 2, fillOpacity: 0.15 }));
+    polyLayer.on('mouseout',  e => {
+      if (adminFilterSet.has(f._key)) e.target.setStyle(styleAdminSelected(level));
+      else                            e.target.setStyle(styleAdmin(level));
+    });
+    polyLayer._adminKey = f._key;
+    polyLayer._adminLevel = level;
+    adminLayerGroup.addLayer(polyLayer);
+  }
+  if (document.getElementById('show-admin').checked) adminLayerGroup.addTo(map);
+}
+
+function toggleAdminFilter(key, name, level, polyLayer) {
+  if (adminFilterSet.has(key)) {
+    adminFilterSet.delete(key);
+    polyLayer.setStyle(styleAdmin(level));
+  } else {
+    adminFilterSet.add(key);
+    polyLayer.setStyle(styleAdminSelected(level));
+  }
+  renderActiveAdminChips();
+  renderAll();
+}
+
+function renderActiveAdminChips() {
+  const c = document.getElementById('active-admin-filter');
+  const clearBtn = document.getElementById('clear-admin-filter-btn');
+  c.innerHTML = '';
+  if (adminFilterSet.size === 0) {
+    c.innerHTML = '<em>Click an adm1/adm2/UC polygon to filter to it</em>';
+    clearBtn.style.display = 'none';
+    return;
+  }
+  for (const key of [...adminFilterSet].sort()) {
+    const [level, name] = key.split(':');
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.innerHTML = `${level}: ${name} <button title="Remove">×</button>`;
+    chip.querySelector('button').addEventListener('click', () => {
+      adminFilterSet.delete(key);
+      // Restyle the matching polygon back to default
+      if (adminLayerGroup) {
+        adminLayerGroup.eachLayer(l => { if (l._adminKey === key) l.setStyle(styleAdmin(l._adminLevel)); });
+      }
+      renderActiveAdminChips();
+      renderAll();
+    });
+    c.appendChild(chip);
+  }
+  clearBtn.style.display = 'block';
+}
+
+document.getElementById('clear-admin-filter-btn').addEventListener('click', () => {
+  adminFilterSet.clear();
+  if (adminLayerGroup) {
+    adminLayerGroup.eachLayer(l => l.setStyle(styleAdmin(l._adminLevel)));
+  }
+  renderActiveAdminChips();
+  renderAll();
+});
+
+document.getElementById('show-admin').addEventListener('change', e => {
+  if (!adminLayerGroup) return;
+  if (e.target.checked) adminLayerGroup.addTo(map);
+  else                  map.removeLayer(adminLayerGroup);
+});
+
+// =============================================================================
+// CSV load (local mode)
+// =============================================================================
+function parseRow(r) {
+  for (const k of ['centroid_lat','centroid_lon','lat','lon','height_m','var','distance_m','height_delta_m','cvu_id','nearest_cvu_id']) {
+    if (r[k] !== undefined && r[k] !== '') {
+      const n = parseFloat(r[k]);
+      r[k] = Number.isFinite(n) ? n : null;
+    } else if (r[k] === '') r[k] = null;
+  }
+  return r;
+}
+
+function detectLayerKey(filename) {
+  const base = filename.split('/').pop().toLowerCase();
+  for (const [key, cfg] of Object.entries(LAYERS)) {
+    const names = [cfg.file, ...(cfg.file_alt || [])].map(s => s.toLowerCase());
+    if (names.some(n => base === n)) return key;
+  }
+  for (const key of Object.keys(LAYERS)) if (base.startsWith(key)) return key;
+  if ((/^cvu(_.+)?\.csv$/i.test(base)) && !base.includes('coord_quality')) return 'cvu_china';
+  return null;
+}
+
+const _loadedFiles = {};
+
+function loadCsvFile(file) {
+  return new Promise(resolve => {
+    const base = file.name.toLowerCase();
+    if (base === 'admin.geojson') {
+      // Load the admin polygon overlay
+      const reader = new FileReader();
+      reader.onload = () => {
+        try { loadAdminGeojson(JSON.parse(reader.result)); } catch (e) { console.warn('admin.geojson parse:', e); }
+        resolve('admin');
+      };
+      reader.readAsText(file);
+      return;
+    }
+    if (base === 'reviews.csv') {
+      const reader = new FileReader();
+      reader.onload = () => { ingestReviewsCsv(reader.result); updateReviewStats(); resolve('reviews'); };
+      reader.readAsText(file);
+      return;
+    }
+    const key = detectLayerKey(file.name);
+    if (!key) { console.warn(`Skipping unknown file: ${file.name}`); resolve(null); return; }
+    Papa.parse(file, {
+      header: true, dynamicTyping: false, skipEmptyLines: true,
+      complete: (res) => {
+        data[key] = res.data.map(parseRow);
+        _loadedFiles[key] = { filename: file.name, headers: res.meta.fields || Object.keys(data[key][0] || {}) };
+        for (const r of data[key]) if (r.city) cityValues.add(r.city);
+        document.getElementById('welcome').classList.add('hidden');
+        resolve(key);
+      },
+    });
+  });
+}
+
+async function loadFiles(fileList) {
+  const arr = Array.from(fileList).filter(f =>
+    f.name.endsWith('.csv') || f.name.toLowerCase() === 'admin.geojson'
+  );
+  await Promise.all(arr.map(loadCsvFile));
+  for (const [layerKey, rows] of Object.entries(data)) migrateLegacyReviewedColumn(layerKey, rows);
+  refreshCityFilter();
+  renderAll();
+  const bounds = L.latLngBounds([]);
+  for (const key of Object.keys(data)) {
+    for (const r of data[key].slice(0, 5000)) {
+      const lat = r.centroid_lat ?? r.lat;
+      const lon = r.centroid_lon ?? r.lon;
+      if (Number.isFinite(lat) && Number.isFinite(lon)) bounds.extend([lat, lon]);
+    }
+  }
+  if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40] });
+  updateReviewStats();
+}
+
+function refreshCityFilter() {
+  const sel = document.getElementById('city-filter');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All cities</option>';
+  for (const c of [...cityValues].sort()) {
+    const o = document.createElement('option');
+    o.value = c; o.textContent = c;
+    sel.appendChild(o);
+  }
+  if (cur && cityValues.has(cur)) sel.value = cur;
+}
+
+document.getElementById('file-input').addEventListener('change', e => loadFiles(e.target.files));
+
+// =============================================================================
+// Local-mode export — just reviews.csv
+// =============================================================================
+function exportReviewsCsv() {
+  const n = countReviewed();
+  if (n === 0) { alert('No reviews yet. Mark some buildings in their popups first.'); return; }
+  const filename = loadedISO && loadedISO !== 'LOCAL' ? `reviews_${loadedISO}.csv` : 'reviews.csv';
+  downloadText(filename, buildReviewsCsv());
+  alert(`Downloaded ${filename} (${n} review marks).\n\nMove it into the relevant data/<ISO>/ folder.`);
+}
+
+function csvEscape(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function downloadText(filename, content) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+document.getElementById('export-csv-btn').addEventListener('click', exportReviewsCsv);
+
+document.getElementById('clear-reviews-btn').addEventListener('click', () => {
+  if (!confirm('Clear ALL review marks from this browser? This cannot be undone.')) return;
+  const toRemove = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(REVIEW_KEY_PREFIX)) toRemove.push(k);
+  }
+  toRemove.forEach(k => localStorage.removeItem(k));
+  updateReviewStats();
+  renderAll();
+});
+
+// =============================================================================
+// Drag and drop
+// =============================================================================
+let dragCounter = 0;
+const dropZone = document.getElementById('drop-zone');
+document.addEventListener('dragenter', e => { e.preventDefault(); dragCounter++; dropZone.classList.add('active'); });
+document.addEventListener('dragleave', e => { e.preventDefault(); dragCounter--; if (dragCounter <= 0) { dropZone.classList.remove('active'); dragCounter = 0; } });
+document.addEventListener('dragover',  e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('active'); dragCounter = 0;
+  if (!e.dataTransfer) return;
+  const items = e.dataTransfer.items;
+  if (items && items[0] && items[0].webkitGetAsEntry) {
+    const files = [];
+    const promises = [];
+    for (const it of items) {
+      const entry = it.webkitGetAsEntry();
+      if (entry) promises.push(walkEntry(entry, files));
+    }
+    Promise.all(promises).then(() => loadFiles(files));
+  } else {
+    loadFiles(e.dataTransfer.files);
+  }
+});
+function walkEntry(entry, out) {
+  return new Promise(resolve => {
+    if (entry.isFile) entry.file(f => { out.push(f); resolve(); });
+    else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      reader.readEntries(async (entries) => {
+        await Promise.all(entries.map(en => walkEntry(en, out)));
+        resolve();
+      });
+    } else resolve();
+  });
+}
+
+// =============================================================================
+// Filter wiring
+// =============================================================================
+for (const id of ['height-min','height-max','city-filter','show-polygons','cluster-points','size-by-height']) {
+  document.getElementById(id).addEventListener('change', renderAll);
+}
+for (const cb of document.querySelectorAll('#confirmed-toggles input, #status-toggles input')) {
+  cb.addEventListener('change', renderAll);
+}
+
+updateReviewStats();
+
+// =============================================================================
+// Online mode: Cloudflare Worker proxy (replaces direct GitHub API calls).
+//
+// The Worker holds the bot PAT server-side and gatekeeps with a shared
+// dashboard password. Reviewers paste:
+//   1. The Worker URL  (e.g. https://cvu-dash-proxy.acct.workers.dev)
+//   2. The dashboard password
+//   3. Their name (used in commit messages)
+//
+// Worker endpoints used:
+//   GET  <workerUrl>/api/manifest               → { sha, content (base64 manifest.json) }
+//   GET  <workerUrl>/api/file/<path>            → { sha, content (base64) }
+//   PUT  <workerUrl>/api/file/<path>            body: { content (base64), sha?, message? }
+// =============================================================================
+const PROXY_CONFIG_KEY = 'cvu-gap-proxy-config';
+let proxyConfig = JSON.parse(localStorage.getItem(PROXY_CONFIG_KEY) || '{}');
+let proxyManifest = null;
+const proxyFileShas = {};
+
+const $ghWorker   = document.getElementById('gh-worker');
+const $ghPat      = document.getElementById('gh-pat');
+const $ghReviewer = document.getElementById('gh-reviewer');
+const $ghLoad     = document.getElementById('gh-load-btn');
+const $ghClear    = document.getElementById('gh-clear-btn');
+const $ghCountry  = document.getElementById('gh-country');
+const $ghStatus   = document.getElementById('gh-status');
+const $saveGh     = document.getElementById('save-github-btn');
+
+if (proxyConfig.workerUrl)   $ghWorker.value   = proxyConfig.workerUrl;
+if (proxyConfig.password)    $ghPat.value      = proxyConfig.password;
+if (proxyConfig.reviewer)    $ghReviewer.value = proxyConfig.reviewer;
+
+function proxyHeaders() {
+  return {
+    'Authorization': `Bearer ${proxyConfig.password || ''}`,
+    'Content-Type': 'application/json',
+    'X-Reviewer-Name': proxyConfig.reviewer || 'anonymous',
+  };
+}
+
+async function workerGet(path) {
+  const base = (proxyConfig.workerUrl || '').replace(/\/+$/, '');
+  const url = path === '__manifest__'
+    ? `${base}/api/manifest`
+    : `${base}/api/file/${encodeURI(path)}`;
+  const r = await fetch(url, { headers: proxyHeaders() });
+  if (!r.ok) {
+    const err = new Error(`GET ${path}: ${r.status} ${r.statusText}`);
+    err.status = r.status;
+    throw err;
+  }
+  const j = await r.json();
+  if (j.content == null) throw new Error(`Empty content for ${path}`);
+  return { text: decodeBase64Utf8(j.content), sha: j.sha };
+}
+
+async function workerPut(path, text, sha, message) {
+  const base = (proxyConfig.workerUrl || '').replace(/\/+$/, '');
+  const url = `${base}/api/file/${encodeURI(path)}`;
+  const body = {
+    content: encodeBase64Utf8(text),
+    sha: sha || undefined,
+    message: message || `Update ${path}`,
+  };
+  const r = await fetch(url, { method: 'PUT', headers: proxyHeaders(), body: JSON.stringify(body) });
+  const respText = await r.text();
+  let resp; try { resp = JSON.parse(respText); } catch (_) { resp = {}; }
+  if (!r.ok) {
+    const err = new Error(`PUT ${path}: ${r.status} ${resp.error || resp.message || r.statusText}`);
+    err.status = r.status;
+    throw err;
+  }
+  return resp.sha;
+}
+
+function encodeBase64Utf8(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+function decodeBase64Utf8(b64) {
+  return decodeURIComponent(escape(atob(b64.replace(/\n/g, ''))));
+}
+
+async function loadManifest() {
+  proxyConfig.workerUrl = $ghWorker.value.trim();
+  proxyConfig.password  = $ghPat.value.trim();
+  proxyConfig.reviewer  = $ghReviewer.value.trim();
+  if (!proxyConfig.workerUrl || !proxyConfig.password) {
+    $ghStatus.textContent = 'Need both Worker URL and password.';
+    return;
+  }
+  localStorage.setItem(PROXY_CONFIG_KEY, JSON.stringify(proxyConfig));
+  $ghStatus.textContent = 'Loading manifest…';
+  try {
+    const { text } = await workerGet('__manifest__');
+    proxyManifest = JSON.parse(text);
+  } catch (e) {
+    $ghStatus.textContent = `Failed: ${e.message}`;
+    return;
+  }
+  $ghCountry.innerHTML = '<option value="">— pick a country —</option>';
+  for (const c of (proxyManifest.countries || [])) {
+    const total = Object.values(c.counts || {}).reduce((a,b) => a+b, 0);
+    const opt = document.createElement('option');
+    opt.value = c.iso;
+    opt.textContent = `${c.iso} (${total.toLocaleString()} rows, run ${(c.run_at||'').slice(0,10)})`;
+    $ghCountry.appendChild(opt);
+  }
+  $ghCountry.style.display = 'block';
+  $ghStatus.textContent = `Manifest loaded: ${(proxyManifest.countries||[]).length} countries available.`;
+}
+
+async function loadCountryFromProxy(iso) {
+  if (!iso || !proxyManifest) return;
+  const country = (proxyManifest.countries || []).find(c => c.iso === iso);
+  if (!country) { $ghStatus.textContent = `${iso} not in manifest.`; return; }
+  $ghStatus.textContent = `Loading ${iso}…`;
+
+  for (const k of Object.keys(data)) delete data[k];
+  for (const k of Object.keys(layerGroups)) {
+    if (layerGroups[k]) { layerGroups[k].clearLayers(); map.removeLayer(layerGroups[k]); }
+    delete layerGroups[k];
+  }
+  for (const k of Object.keys(_loadedFiles)) delete _loadedFiles[k];
+  for (const k of Object.keys(proxyFileShas)) delete proxyFileShas[k];
+  cityValues = new Set();
+  clearAdminLayer();
+
+  const fileMap = {
+    'likely_new':           country.files.likely_new,
+    'borderline':           country.files.borderline,
+    'likely_already_in_cvu':country.files.likely_already_in_cvu,
+    'cvu_china':            country.files.cvu,
+    'cvu_coord_quality':    country.files.cvu_coord_quality,
+  };
+
+  const pending = [];
+  for (const [layerKey, path] of Object.entries(fileMap)) {
+    if (!path) continue;
+    pending.push((async () => {
+      try {
+        const { text, sha } = await workerGet(path);
+        const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+        data[layerKey] = parsed.data.map(parseRow);
+        for (const r of data[layerKey]) if (r.city) cityValues.add(r.city);
+        const basename = path.split('/').pop();
+        _loadedFiles[layerKey] = { filename: basename, headers: parsed.meta.fields || [] };
+        proxyFileShas[layerKey] = { path, sha };
+      } catch (e) {
+        if (e.status !== 404) console.warn(`Could not load ${layerKey} (${path}): ${e.message}`);
+      }
+    })());
+  }
+  // Admin polygons — separate file, optional
+  pending.push((async () => {
+    try {
+      const { text } = await workerGet(`data/${iso}/admin.geojson`);
+      loadAdminGeojson(JSON.parse(text));
+    } catch (e) {
+      if (e.status !== 404) console.warn(`Could not load admin.geojson for ${iso}: ${e.message}`);
+    }
+  })());
+
+  await Promise.all(pending);
+
+  loadedISO = iso;
+  document.getElementById('welcome').classList.add('hidden');
+  $saveGh.style.display = 'block';
+
+  // Reviews sidecar
+  try {
+    const r = await workerGet(`data/${iso}/reviews.csv`);
+    ingestReviewsCsv(r.text);
+    proxyFileShas['_reviews'] = { path: `data/${iso}/reviews.csv`, sha: r.sha };
+  } catch (e) {
+    if (e.status !== 404) console.warn(`reviews.csv load failed: ${e.message}`);
+    proxyFileShas['_reviews'] = { path: `data/${iso}/reviews.csv`, sha: null };
+  }
+  for (const [layerKey, rows] of Object.entries(data)) migrateLegacyReviewedColumn(layerKey, rows);
+
+  refreshCityFilter();
+  renderAll();
+
+  const bounds = L.latLngBounds([]);
+  for (const key of Object.keys(data)) {
+    for (const r of data[key].slice(0, 5000)) {
+      const lat = r.centroid_lat ?? r.lat;
+      const lon = r.centroid_lon ?? r.lon;
+      if (Number.isFinite(lat) && Number.isFinite(lon)) bounds.extend([lat, lon]);
+    }
+  }
+  if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40] });
+  updateReviewStats();
+  $ghStatus.textContent = `Loaded ${iso} — ${Object.keys(data).length} layer(s).`;
+}
+
+async function saveReviewsToProxy() {
+  if (!loadedISO || loadedISO === 'LOCAL') {
+    alert('Pick a country from the dropdown first.');
+    return;
+  }
+  if (!proxyConfig.reviewer) {
+    const name = prompt('Your name (for commit attribution):');
+    if (!name) return;
+    proxyConfig.reviewer = name.trim();
+    $ghReviewer.value = proxyConfig.reviewer;
+    localStorage.setItem(PROXY_CONFIG_KEY, JSON.stringify(proxyConfig));
+  }
+  $saveGh.disabled = true; $saveGh.textContent = 'Saving…';
+  try {
+    const path = `data/${loadedISO}/reviews.csv`;
+    const csvText = buildReviewsCsv();
+    let sha = proxyFileShas['_reviews']?.sha || null;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const newSha = await workerPut(path, csvText, sha,
+          `Reviews for ${loadedISO} (${countReviewed()} marks)`);
+        proxyFileShas['_reviews'] = { path, sha: newSha };
+        break;
+      } catch (e) {
+        if ((e.status === 409 || e.status === 422) && attempt < 2) {
+          $ghStatus.textContent = `Conflict on reviews.csv, refetching SHA and retrying…`;
+          try {
+            const fresh = await workerGet(path);
+            sha = fresh.sha;
+          } catch (e2) {
+            if (e2.status === 404) sha = null; else throw e2;
+          }
+          continue;
+        }
+        throw e;
+      }
+    }
+    $ghStatus.textContent = `Saved ${countReviewed()} reviews for ${loadedISO}.`;
+  } catch (e) {
+    alert(`Save failed: ${e.message}`);
+    $ghStatus.textContent = `Save failed: ${e.message}`;
+  } finally {
+    $saveGh.disabled = false; $saveGh.textContent = 'Save reviews to GitHub';
+  }
+}
+
+$ghLoad.addEventListener('click', loadManifest);
+$ghCountry.addEventListener('change', e => loadCountryFromProxy(e.target.value));
+$ghClear.addEventListener('click', () => {
+  if (!confirm('Forget the saved Worker URL and password for this browser?')) return;
+  localStorage.removeItem(PROXY_CONFIG_KEY);
+  proxyConfig = {};
+  $ghWorker.value = ''; $ghPat.value = ''; $ghReviewer.value = '';
+  $ghCountry.style.display = 'none'; $ghCountry.innerHTML = '<option value="">— pick a country —</option>';
+  $ghStatus.textContent = 'Forgotten.';
+});
+$saveGh.addEventListener('click', saveReviewsToProxy);
+</script>
+</body>
+</html>
